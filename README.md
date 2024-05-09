@@ -27,14 +27,14 @@ If you find this code useful in your research, please cite:
 
 ## News
 
-📢 **9/May/24** - Initial release with functional generation and evaluation code. This is an early release so please expect some undocument piece of code.
+📢 **9/May/24** - Initial release with functional generation and evaluation code. This is an early release so please expect some undocumented piece of code.
 
 Visualization code and detailed comments will follow.
 
 
 ## Getting started
 
-**Important**: DNO itself is model agnostic and can be used with any diffusion model. The main file is `dno.py`. Demo for different tasks is in `sample/gen_dno.py`.
+**Important**: DNO is model agnostic and can be used with any diffusion model. The main file is `dno.py`. The demo for different tasks is in `sample/gen_dno.py`.
 This demo will show the result using MDM with EMA which we trained ourselves.
 
 
