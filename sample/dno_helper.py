@@ -78,8 +78,10 @@ def task_trajectory_editing(task_info, args, target, target_mask):
         )
     else:
         # obs_list = []
-        selected_index = [62, 90, 110]  # [0] # 
-        target_locations = [(0.5, 0.5), (1., 1.), (1.5, 1.5)] #  [(0,0)] # 
+        # selected_index = [62, 90, 110]  # [0] # 
+        selected_index = [90]  # [0] # 
+        # target_locations = [(0.5, 0.5), (1., 1.), (1.5, 1.5)] #  [(0,0)] # 
+        target_locations = [(1.5, 1.5)] #  [(0,0)] #
         # if DEBUG_SPECIFIC:
         #     model_kwargs["y"]["text"] = ["a person who is standing with his arms held head high lifts his arms above his head, twice."]
         #     selected_index = [9, 27, 46, 59, 62]
