@@ -10,9 +10,6 @@ Visit our [**project page**](https://korrawe.github.io/dno-project/) for more de
 ![teaser](./assets/teaser.jpg)
 
 
-Code to be released.
-
-
 #### Bibtex
 If you find this code useful in your research, please cite:
 
@@ -158,6 +155,15 @@ For motion editing there is a UI for trajectory editing that can be used with th
 - More iterations can lead to better results but also longer computation time. DDIM steps can be increased as well.
 - We found that more DDIM steps require more iterations to converge (1000-2000 steps) but generally produce better results.
 
+
+## Evaluation
+We provide a script to evaluate the refinement task. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion.
+```shell
+python -m eval.eval_refinement --model_path ./save/mdm_avg_dno/model000500000_avg.pt
+```
+
+## Visualization
+To be updated.
 
 
 ## Acknowledgments
