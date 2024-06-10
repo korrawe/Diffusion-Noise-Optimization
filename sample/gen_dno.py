@@ -3,7 +3,6 @@ import os
 import pickle
 import shutil
 import time
-from pprint import pprint
 
 # For debugging
 import matplotlib.pyplot as plt
@@ -12,37 +11,28 @@ import torch
 from tqdm import tqdm
 
 import data_loaders.humanml.utils.paramUtil as paramUtil
-from data_loaders import humanml_utils
 from data_loaders.get_data import DatasetConfig, get_dataset_loader
-from data_loaders.humanml.scripts.motion_process import recover_from_ric
-from data_loaders.humanml.utils.plot_script import plot_3d_motion, plot_3d_motion_static
+from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
 from diffusion.gaussian_diffusion import GaussianDiffusion
 from dno import DNO, DNOOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
-from sample.keyframe_pattern import get_kframes, get_obstacles
-
 # from sample.noise_optimizer import NoiseOptimizer, NoiseOptOptions
 from utils import dist_util
 from utils.fixseed import fixseed
 from utils.generation_template import get_template
-from utils.model_util import (
-    create_gaussian_diffusion,
-    create_model_and_diffusion,
-    load_model_wo_clip,
-)
-from utils.output_util import (
-    construct_template_variables,
-    sample_to_motion,
-    save_multiple_samples,
-)
+from utils.model_util import (create_gaussian_diffusion,
+                              create_model_and_diffusion, load_model_wo_clip)
+from utils.output_util import (construct_template_variables, sample_to_motion,
+                               save_multiple_samples)
 from utils.parser_util import generate_args
 
 
 def main(num_trials=3):
     num_ode_steps = 10
+    OPTIMIZATION_STEP = 800
     #############################################
     ### Gradient Checkpointing
     # More DDIM steps will require more memory for full chain backprop.
@@ -327,7 +317,7 @@ def main(num_trials=3):
         #### Noise Optimization Config ####
         is_editing_task = not is_noise_init
         noise_opt_conf = DNOOptions(
-            num_opt_steps=800, # 300 if is_editing_task else 500,
+            num_opt_steps=OPTIMIZATION_STEP, # 300 if is_editing_task else 500,
             diff_penalty_scale=2e-3 if is_editing_task else 0,
         )
 
@@ -504,13 +494,6 @@ def main(num_trials=3):
                 const_noise=False,
             )
 
-        # # Visualize the inversion process on the second row
-        # for ii in range(len(sample)):
-        #     if sample[ii].shape[0] > 1:
-        #         sample[ii][1] = pred_x0_list[ii][0]
-        #     else:
-        #         sample[ii] = torch.cat([sample[ii], pred_x0_list[ii]], dim=0)
-
         # model_kwargs['y']['text'] = ['a person walks to the right']
         #######################################
         #######################################
@@ -645,6 +628,7 @@ def main(num_trials=3):
         # for j in range(len(sample)):
         #     sample[j] = sample[j][:, :, :, :gen_frames]
 
+        ### Concat generated motion for visualization
         if task == "motion_blending":
             motion_to_vis = torch.cat([sample, sample_2, gen_sample, final_out], dim=0)
             captions = [
@@ -718,9 +702,6 @@ def main(num_trials=3):
             ] + [f"Prediction {i+1}" for i in range(num_trials)]
             args.num_samples = 2 + num_trials
 
-            # cur_motions[-1][1] = (
-            #     noisy_motion
-            # )
         all_motions.extend(cur_motions)
         all_lengths.extend(cur_lengths)
         all_text.extend(cur_texts)
@@ -732,7 +713,7 @@ def main(num_trials=3):
     all_motions = np.concatenate(all_motions, axis=0)  # [bs * num_dump_step, 1, 3, 120]
     all_motions = all_motions[
         :total_num_samples
-    ]  # #       not sure? [bs, njoints, 6, seqlen]
+    ]  # [bs, njoints, 3, seqlen]
     all_text = all_text[:total_num_samples]  # len() = args.num_samples * num_dump_step
     all_lengths = np.concatenate(all_lengths, axis=0)[:total_num_samples]
 
@@ -759,8 +740,7 @@ def main(num_trials=3):
     skeleton = paramUtil.t2m_kinematic_chain
 
     sample_files = []
-    num_samples_in_out_file = num_dump_step  # 7
-
+    num_samples_in_out_file = num_dump_step 
     (
         sample_print_template,
         row_print_template,
@@ -770,59 +750,33 @@ def main(num_trials=3):
         all_file_template,
     ) = construct_template_variables(args.unconstrained)
 
-    # useful and quick.
-    plot_only_last_column = True
-    # NOTE: we change the behavior of num_samples to support visualising denoising progress with multiple dump steps
-    # for sample_i in range(args.num_samples * num_dump_step): # range(args.num_samples):
-    # for sample_i in range(args.num_repetitions): # range(args.num_samples):
-
-    # for trial_i in range(num_trials):
-    # captions = [
-    #     "Original",
-    #     "Reconstruction",
-    # ] + [f"Prediction {i+1}" for i in range(num_trials)]
-
     for sample_i in range(args.num_samples):
         rep_files = []
-        # for rep_i in range(args.num_repetitions):
-        # for rep_i in range(num_dump_step):
-        if plot_only_last_column:
-            iterator = [num_dump_step - 1]
-        else:
-            iterator = range(num_dump_step)
-        # iterator = range(num_dump_step)
-        for dump_step_i in iterator:
-            # idx = rep_i + sample_i * num_dump_step # rep_i*args.batch_size + sample_i
-            # idx = sample_i * num_dump_step + dump_step_i
-            idx = sample_i + dump_step_i * args.num_samples
-            print("saving", idx)
-            caption = all_text[idx]
-            length = all_lengths[idx]
-            motion = all_motions[idx].transpose(2, 0, 1)[:length]  # [120, 22, 3]
-            save_file = sample_file_template.format(sample_i, dump_step_i)
-            print(
-                sample_print_template.format(caption, sample_i, dump_step_i, save_file)
-            )
-            animation_save_path = os.path.join(out_path, save_file)
+        
+        print("saving", sample_i)
+        caption = all_text[sample_i]
+        length = all_lengths[sample_i]
+        motion = all_motions[sample_i].transpose(2, 0, 1)[:length]
+        save_file = sample_file_template.format(0, sample_i)
+        print(
+            sample_print_template.format(caption, 0, sample_i, save_file)
+        )
+        animation_save_path = os.path.join(out_path, save_file)
+        plot_3d_motion(
+            animation_save_path,
+            skeleton,
+            motion,
+            dataset=args.dataset,
+            title=captions[sample_i],
+            fps=fps,
+            kframes=kframes,
+            obs_list=obs_list,
+            target_pose=target[0].cpu().numpy(),
+            gt_frames=[kk for (kk, _) in kframes] if SHOW_TARGET else [],
+        )
+        rep_files.append(animation_save_path)
 
-            plot_3d_motion(
-                animation_save_path,
-                skeleton,
-                motion,
-                dataset=args.dataset,
-                # title=caption,
-                title=captions[sample_i],
-                fps=fps,
-                kframes=kframes,
-                obs_list=obs_list,
-                # NOTE: TEST
-                target_pose=target[0].cpu().numpy(),
-                gt_frames=[kk for (kk, _) in kframes] if SHOW_TARGET else [],
-            )
-            # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
-            rep_files.append(animation_save_path)
-
-        # all_file_template = 'samples_{:02d}_to_{:02d}_{:02d}.mp4'
+        # Check if we need to stack video
         sample_files = save_multiple_samples(
             args,
             out_path,
@@ -836,17 +790,6 @@ def main(num_trials=3):
             sample_files,
             sample_i,
         )
-
-    # if num_trials > 1:
-    #     # stack the videos horizontally
-    #     # videos to stacks are in the pattern of all_file_template + "_{}.mp4"
-    #     ffmpeg_rep_files = sorted(glob.glob(os.path.join(out_path, 'samples_*_to_*_*.mp4')))
-    #     ffmpeg_rep_files = [f' -i {f} ' for f in ffmpeg_rep_files]
-    #     # hstack_args = f' -filter_complex hstack=inputs={args.num_repetitions}' if args.num_repetitions > 1 else ''
-    #     hstack_args = f' -filter_complex hstack=inputs={num_trials}' if num_trials > 1 else ''
-    #     ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(
-    #         ffmpeg_rep_files) + f'{hstack_args} {os.path.join(out_path, "samples.mp4")}'
-    #     os.system(ffmpeg_rep_cmd)
 
     abs_path = os.path.abspath(out_path)
     print(f"[Done] Results are at [{abs_path}]")
@@ -981,7 +924,7 @@ def ddim_invert(
     xt_list = [latents]
     pred_x0_list = [latents]
     indices = list(range(num_inference_steps))  # start_t #  - skip_timesteps))
-    from tqdm import tqdm
+    # from tqdm import tqdm
 
     for i, t in enumerate(tqdm(indices, desc="DDIM Inversion")):
         # print(i, t)

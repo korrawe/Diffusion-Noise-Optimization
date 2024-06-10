@@ -90,25 +90,9 @@ def save_multiple_samples(args, out_path, row_print_template,
                           all_file_template, caption, num_samples_in_out_file,
                           rep_files, sample_files, sample_i):
 
-    if len(rep_files) > 1:
-        # only do the hstack if there are multiple repetitions
-        all_rep_save_file = row_file_template.format(sample_i)
-        all_rep_save_path = os.path.join(out_path, all_rep_save_file)
-        ffmpeg_rep_files = [f' -i {f} ' for f in rep_files]
-        # hstack_args = f' -filter_complex hstack=inputs={args.num_repetitions}' if args.num_repetitions > 1 else ''
-        hstack_args = f' -filter_complex hstack=inputs={args.num_dump_step}' if args.num_dump_step > 1 else ''
-        ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(
-            ffmpeg_rep_files) + f'{hstack_args} {all_rep_save_path}'
-        os.system(ffmpeg_rep_cmd)
-        print(row_print_template.format(caption, sample_i, all_rep_save_file))
-        sample_files.append(all_rep_save_path)
-    else:
-        # otherwise just save the one repetition
-        sample_files.append(rep_files[0])
+    sample_files.append(rep_files[0])
 
-    # stack vertically at the end of all rows
-    # if (sample_i + 1
-    #     ) % num_samples_in_out_file == 0 or
+    # stack horizontally if there are multiple repetitions
     if sample_i + 1 == args.num_samples:
         # if (sample_i + 1) % num_samples_in_out_file == 0 or sample_i + 1 == args.num_repetitions:
         # all_sample_save_file =  f'samples_{(sample_i - len(sample_files) + 1):02d}_to_{sample_i:02d}.mp4'
@@ -119,7 +103,7 @@ def save_multiple_samples(args, out_path, row_print_template,
             all_print_template.format(sample_i - len(sample_files) + 1,
                                       sample_i, all_sample_save_file))
         ffmpeg_rep_files = [f' -i {f} ' for f in sample_files]
-        vstack_args = f' -filter_complex vstack=inputs={len(sample_files)}' if len(
+        vstack_args = f' -filter_complex hstack=inputs={len(sample_files)}' if len(
             sample_files) > 1 else ''
         ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(
             ffmpeg_rep_files) + f'{vstack_args} {all_sample_save_path}'

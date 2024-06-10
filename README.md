@@ -130,8 +130,8 @@ The model is trained on the HumanML3D dataset.
 
 
 ## Motion Synthesis
-We provide a demo code for motion editing, in-filling, refinement, in-beetweening, and blending tasks in `sample/gen_dno.py`.
-The task can be selected by commenting or uncommenting from list on lines 54-58.
+#### We provide a demo code for motion editing, in-filling, refinement, in-beetweening, and blending tasks in `sample/gen_dno.py`. The task can be selected by commenting or uncommenting from list on lines 54-58.
+
 
 **Note**: The only differences between these tasks are the reward/loss function and whether to start from DDIM inverted noise or random noise. The rest of the framework is the same.
 
