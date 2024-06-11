@@ -169,6 +169,8 @@ def add_generate_options(parser):
                        help="A text prompt to be generated. If empty, will take text prompts from dataset.")
     group.add_argument("--action_name", default='', type=str,
                        help="An action name to be generated. If empty, will take text prompts from dataset.")
+    group.add_argument("--load_from", default='', type=str,
+                       help="Path to dir of the input output. If empty, will take generate new motion from text prompt.")
 
 
 def add_edit_options(parser):

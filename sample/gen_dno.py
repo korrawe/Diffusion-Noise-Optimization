@@ -19,10 +19,8 @@ from dno import DNO, DNOOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
-# from sample.noise_optimizer import NoiseOptimizer, NoiseOptOptions
 from utils import dist_util
 from utils.fixseed import fixseed
-from utils.generation_template import get_template
 from utils.model_util import (create_gaussian_diffusion,
                               create_model_and_diffusion, load_model_wo_clip)
 from utils.output_util import (construct_template_variables, sample_to_motion,
@@ -47,8 +45,6 @@ def main(num_trials=3):
     # task = "motion_blending"
     # task = "motion_inbetweening"
 
-    # task = "happy_holidays"
-
     print("##### Task: %s #####" % task)
     #############################################
     args = generate_args()
@@ -56,7 +52,6 @@ def main(num_trials=3):
     # print(args.__dict__)
     # print(args.arch)
     args.use_ddim = True
-    args = get_template(args, template_name="no")
     fixseed(args.seed)
 
     out_path = args.output_dir
@@ -72,9 +67,7 @@ def main(num_trials=3):
     assert gen_frames <= n_frames, "gen_frames must be less than n_frames"
     args.gen_frames = gen_frames
     print("n_frames", n_frames)
-    is_using_data = not any(
-        [args.input_text, args.text_prompt, args.action_file, args.action_name]
-    )
+    is_using_data = False
     skeleton = paramUtil.t2m_kinematic_chain
 
     dist_util.setup_dist(args.device)
@@ -88,38 +81,18 @@ def main(num_trials=3):
         )
         if args.text_prompt != "":
             out_path += "_" + args.text_prompt.replace(" ", "_").replace(".", "")
-        elif args.input_text != "":
-            out_path += "_" + os.path.basename(args.input_text).replace(
-                ".txt", ""
-            ).replace(" ", "_").replace(".", "")
 
     out_path = os.path.join(out_path, task + "_dno")
     args.output_dir = out_path
 
-    # this block must be called BEFORE the dataset is loaded
+    # This block must be called BEFORE the dataset is loaded
+    assert args.text_prompt != "", "Please specify text_prompt"
     if args.text_prompt != "":
         texts = [args.text_prompt]
-        # Do 3 repetitions from the same propmt. But put it in num_sample instead so we can do all of them in parallel
-        # NOTE: change this to 1 for editing
-        args.num_samples = 1  #  3
-        args.num_repetitions = 1
-    else:
-        # TODO: check which task is being done and if the initial motion is provided
-        assert args.input_text != "", "Please specify text_prompt"
+        args.num_samples = 1
 
-    # NOTE: Currently not supporting multiple repetitions due to the way we handle trajectory model
     args.num_repetitions = 1
-
-    assert (
-        args.num_samples <= args.batch_size
-    ), f"Please either increase batch_size({args.batch_size}) or reduce num_samples({args.num_samples})"
-    # So why do we need this check? In order to protect GPU from a memory overload in the following line.
-    # If your GPU can handle batch size larger then default, you can specify it through --batch_size flag.
-    # If it doesn't, and you still want to sample more prompts, run this script with different seeds
-    # (specify through the --seed flag)
-    args.batch_size = (
-        args.num_samples
-    )  # Sampling a single batch from the testset, with exactly args.num_samples
+    args.batch_size = args.num_samples
 
     print("Loading dataset...")
     data = load_dataset(args, n_frames)
@@ -143,20 +116,22 @@ def main(num_trials=3):
     model.eval()  # disable random masking
     model_device = next(model.parameters()).device
     ###################################
+    collate_args = [
+        {
+            "inp": torch.zeros(n_frames),
+            "tokens": None,
+            "lengths": gen_frames,
+        }
+    ] * args.num_samples
+    collate_args = [dict(arg, text=txt) for arg, txt in zip(collate_args, texts)]
+    _, model_kwargs = collate(collate_args)
 
-    if is_using_data:
-        iterator = iter(data)
-        _, model_kwargs = next(iterator)
-    else:
-        collate_args = [
-            {
-                "inp": torch.zeros(n_frames),
-                "tokens": None,
-                "lengths": gen_frames,
-            }
-        ] * args.num_samples
-        collate_args = [dict(arg, text=txt) for arg, txt in zip(collate_args, texts)]
-        _, model_kwargs = collate(collate_args)
+    # add CFG scale to batch
+    if args.guidance_param != 1:
+        model_kwargs["y"]["scale"] = (
+            torch.ones(args.batch_size, device=dist_util.dev())
+            * args.guidance_param
+        )
 
     # Name for logging
     model_kwargs["y"]["log_name"] = out_path
@@ -169,17 +144,14 @@ def main(num_trials=3):
     obs_list = []
     kframes = []
 
-    # NOTE: edit until here
-
-    ### NOTE: Prepare target for task #######################
+    ### Prepare target for task ################
     gen_batch_size = 1
     args.gen_batch_size = gen_batch_size
     target = torch.zeros([gen_batch_size, args.max_frames, 22, 3], device=model_device)
     target_mask = torch.zeros_like(target, dtype=torch.bool)
-    SHOW_TARGET = False  # NOTE
-    load_from = None
+    SHOW_TARGET_POSE = False
 
-    ###########################################
+    ############################################
     # Output path
     if os.path.exists(out_path):
         shutil.rmtree(out_path)
@@ -188,16 +160,17 @@ def main(num_trials=3):
     with open(args_path, "w") as fw:
         json.dump(vars(args), fw, indent=4, sort_keys=True)
     ############################################
-    skel_to_vis = []
 
-    # NOTE: TODO: change this for chain editing
+    # NOTE: change this for chain editing
     for rep_i in range(args.num_repetitions):
         assert args.num_repetitions == 1, "Not implemented"
-        if load_from is None:
+        args.load_from = "save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref"
+        # load_from = None
+        if args.load_from == '': # is None:
             # Run normal text-to-motion generation to get the starting motion
             sample = dno_helper.run_text_to_motion(
                 args, diffusion, model, model_kwargs, data, n_frames
-            )
+            )  # [1, 263, 1, 120]
             if task == "motion_blending":
                 # Sample another motion to use it for blending example.
                 model_kwargs["y"]["text"] = ["a person is jumping sideway to the right"]
@@ -209,39 +182,14 @@ def main(num_trials=3):
             # Load from file
             # TODO: check loading from file
             idx_to_load = 0
-            load_from = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/chain1000_2_traj/"
-            load_from_x = load_from + "optimized_x.pt"
-
-            import pdb
-
-            pdb.set_trace()
-            sample = [
-                torch.load(load_from_x)[idx_to_load : idx_to_load + 1].clone()
-            ] * 7
+            # load_from = "save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref"
+            # load_from = "./save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/chain1000_2_traj/"
+            load_from_x = os.path.join(args.load_from , "optimized_x.pt")
+            sample = torch.load(load_from_x)[None, idx_to_load].clone()
 
         #######################
         ##### Edting here #####
         #######################
-        multiple_edit = False  # True
-        # TODO: verify this logic
-        if multiple_edit:
-            # load_from = ""
-            # idx_to_load = 0
-            # load_from = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/edit_90_1_hand/"
-            # idx_to_load = 2
-            # load_from = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/edit_90_2_traj/"
-            # idx_to_load = 1
-            # load_from = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/chain1000_1_hand/"
-            idx_to_load = 0
-            load_from = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/chain1000_2_traj/"
-
-            load_from_x = load_from + "optimized_x.pt"
-            import pdb
-
-            pdb.set_trace()
-            sample = [
-                torch.load(load_from_x)[idx_to_load : idx_to_load + 1].clone()
-            ] * 7
 
         # Visualize the generated motion
         # Take last (final) sample and cut to the target length
@@ -320,41 +268,22 @@ def main(num_trials=3):
             num_opt_steps=OPTIMIZATION_STEP, # 300 if is_editing_task else 500,
             diff_penalty_scale=2e-3 if is_editing_task else 0,
         )
-
         START_FROM_NOISE = is_noise_init
 
         if task == "motion_inbetweening":
-            SHOW_TARGET = True
+            SHOW_TARGET_POSE = True
 
-        # elif task == "happy_holidays":
-        #     # import target_pattern
-        #     from sample.target_pattern import load_happy_holidays
-        #     target_pattern = load_happy_holidays()
-        #     import pdb; pdb.set_trace()
-
-        #     START_FROM_NOISE = True
-        #     # Create a new target from the combined motion
-        #     target = torch.zeros([gen_batch_size, args.max_frames, 22, 3], device=model_device)
-        #     target[0, :gen_frames, :, :] = torch.from_numpy(initial_motion).to(
-        #         target.device
-        #     )
-        #     start_frame = 0
-        #     target_frame = 80
-
-        #     target_mask = torch.ones_like(target, dtype=torch.bool)
-
-        #     # kframes = [start_frame, target_frame]
-        #     SHOW_TARGET = True
-        #     target_mask[0, [start_frame, target_frame], :, :] = True
-        #     kframes = [(start_frame, (0,0)), (target_frame, (0,0))]
-
-        # repeat num trials times on the first dimension
-        target = target.repeat(num_trials, 1, 1, 1)
-        target_mask = target_mask.repeat(num_trials, 1, 1, 1)
+        # Repeat target to match num_trials
+        if target.shape[0] == 1:  
+            target = target.repeat(num_trials, 1, 1, 1)
+            target_mask = target_mask.repeat(num_trials, 1, 1, 1)
+        elif target.shape[0] != num_trials:
+            raise ValueError("target shape is not 1 or equal to num_trials")
 
         # At this point, we need to have (1) target, (2) target_mask, (3) kframes, (4, optional) initial motion
 
         ########################################
+        # TODO: move SMPL visualization to a separate function
         SAVE_FOR_RENDERING = False  # True
         if SAVE_FOR_RENDERING:
             # Save additional objects for rendering
@@ -438,7 +367,8 @@ def main(num_trials=3):
 
         ######## DDIM inversion ########
         # Do inversion to get the initial noise for editing
-        inverse_step = 99  # 30
+        inverse_step = 999 # 99  # 30
+        diffusion_invert = create_gaussian_diffusion(args, timestep_respacing="ddim1000")
         cur_t = inverse_step  # 100 - inverse_step
         dump_steps = [0, 5, 10, 20, 30, 40, 49]
         shape = (args.batch_size, model.njoints, model.nfeats, n_frames)
@@ -450,7 +380,7 @@ def main(num_trials=3):
         else:
             motion_to_invert = sample.clone()
         inv_noise, pred_x0_list = ddim_invert(
-            diffusion,
+            diffusion_invert,
             model,
             motion_to_invert,
             model_kwargs=model_kwargs,  # model_kwargs['y']['text'],
@@ -458,16 +388,6 @@ def main(num_trials=3):
             num_inference_steps=inverse_step,
             clip_denoised=False,
         )
-
-        if multiple_edit:
-            import pdb
-
-            pdb.set_trace()
-            load_from_z = load_from + "optimized_z.pt"
-
-            load_noise = torch.load(load_from_z)[idx_to_load : idx_to_load + 1]
-            inv_noise = load_noise
-            # sample = [torch.load(load_from)[:1].clone()] * 7
 
         # generate with a controlled number of steps to really see the quality.
         # goal: now what can the first row samples, the last row should be able to match.
@@ -513,11 +433,8 @@ def main(num_trials=3):
             # use the batch size that comes from main()
             gen_shape = [num_trials, model.njoints, model.nfeats, n_frames]
             cur_xt = torch.randn(gen_shape).to(model_device)
-            # cur_xt = (torch.rand_like(cur_xt) - 0.5) * 0.1  # * 2.0 # 0.1
-            # cur_xt = torch.rand_like(cur_xt) *  0.1
         else:
             cur_xt = inv_noise.detach().clone()
-            # repeat
             cur_xt = cur_xt.repeat(num_trials, 1, 1, 1)
 
         cur_xt = cur_xt.detach().requires_grad_()
@@ -528,7 +445,7 @@ def main(num_trials=3):
             transform=data.dataset.t2m_dataset.transform_th,
             inv_transform=data.dataset.t2m_dataset.inv_transform_th,
             abs_3d=False,
-            use_mse_loss=False,  # args.gen_mse_loss,
+            use_mse_loss=False,
             use_rand_projection=False,
             obs_list=obs_list,
         )
@@ -542,7 +459,7 @@ def main(num_trials=3):
                 model_kwargs=model_kwargs,
                 noise=z,
                 clip_denoised=False,
-                gradient_checkpoint=False,
+                gradient_checkpoint=gradient_checkpoint,
             )
 
         # start optimizing
@@ -587,46 +504,7 @@ def main(num_trials=3):
                 plt.savefig(os.path.join(out_path, f"trial_{i}_{key}.png"))
                 plt.close()
 
-        # (num_trials, x, x, x)
         final_out = out["x"].detach().clone()
-
-        # the first and the second rows are identical across trials
-        # the third row is the generated motion
-        # TESTTEST = True
-        # if TESTTEST:
-        #     new_sample = []
-        #     # sample = [3 x init, 3 x inv, 3 x output]
-        #     new_sample = [sample[0].repeat(3,1,1,1)]
-        #     new_sample.append(sample[1].repeat(3,1,1,1))
-        #     new_sample.append(inter_out[-1])
-        #     sample = new_sample
-        #     dump_steps = [ num_ode_steps] * 3
-
-        # Visualize the generated motion on the third to fifth row
-
-        # for ii in range(len(sample)):
-        #     # if sample[ii].shape[0] > 1:
-        #     #     sample[ii][1] = pred_x0_list[ii][0]
-        #     # else:
-        #     # sample[ii] = torch.cat([sample[ii], final_out], dim=0)
-        #     # NOTE: inter_out is cpu() now
-        #     # sample[ii] [2, x, x, x]
-        #     # interout[ii] [num_trials, x, x, x]
-
-        #     # array [7] = [
-        #     #   [2 + num_trials, x, x, x],
-        #     # ]
-        #     sample[ii] = torch.cat([sample[ii].cpu(), inter_out[ii].cpu()], dim=0)
-
-        # NOTE: hack; for the plotter to plot three rows.
-        # args.num_samples = 3
-
-        # Cut the generation to the desired length
-        # NOTE: this is important for UNETs where the input must be specific size (e.g. 224)
-        # but the output can be cut to any length
-        # print("cut the motion length to", gen_frames)
-        # for j in range(len(sample)):
-        #     sample[j] = sample[j][:, :, :, :gen_frames]
 
         ### Concat generated motion for visualization
         if task == "motion_blending":
@@ -650,10 +528,10 @@ def main(num_trials=3):
             ] + [f"Prediction {i+1}" for i in range(num_trials)]
             args.num_samples = 1 + num_trials
 
-        if task == "trajectory_editing":
-            # save optimized sample
-            torch.save(out["z"], os.path.join(out_path, "optimized_z.pt"))
-            torch.save(out["x"], os.path.join(out_path, "optimized_x.pt"))
+        # if task == "trajectory_editing":
+        # save optimized sample
+        torch.save(out["z"], os.path.join(out_path, "optimized_z.pt"))
+        torch.save(out["x"], os.path.join(out_path, "optimized_x.pt"))
 
         ###################
         ##### save editing path #####
@@ -665,10 +543,6 @@ def main(num_trials=3):
         # # Save additional_objects to a pickle file
         # with open(pickle_file, "wb") as f:
         #     pickle.dump(additional_objects, f)
-
-        #####
-        # num_dump_step = len(dump_steps)
-        # args.num_dump_step = num_dump_step
 
         num_dump_step = 1
         args.num_dump_step = num_dump_step
@@ -752,7 +626,7 @@ def main(num_trials=3):
 
     for sample_i in range(args.num_samples):
         rep_files = []
-        
+
         print("saving", sample_i)
         caption = all_text[sample_i]
         length = all_lengths[sample_i]
@@ -772,7 +646,7 @@ def main(num_trials=3):
             kframes=kframes,
             obs_list=obs_list,
             target_pose=target[0].cpu().numpy(),
-            gt_frames=[kk for (kk, _) in kframes] if SHOW_TARGET else [],
+            gt_frames=[kk for (kk, _) in kframes] if SHOW_TARGET_POSE else [],
         )
         rep_files.append(animation_save_path)
 
@@ -793,37 +667,6 @@ def main(num_trials=3):
 
     abs_path = os.path.abspath(out_path)
     print(f"[Done] Results are at [{abs_path}]")
-
-
-def save_video_stack():
-    """
-    ffmpeg -i left.mp4 -i right.mp4 -filter_complex hstack output.mp4
-    """
-    pass
-
-
-def load_processed_file(model_device, batch_size, traject_only=False):
-    """Load template file for trajectory imputing"""
-    template_path = "./assets/template_joints.npy"
-    init_joints = torch.from_numpy(np.load(template_path))
-    from data_loaders.humanml.scripts.motion_process import process_file
-
-    data, ground_positions, positions, l_velocity = process_file(
-        init_joints.permute(0, 3, 1, 2)[0], 0.002
-    )
-    init_image = data
-    # make it (1, 263, 1, 120)
-    init_image = torch.from_numpy(init_image).unsqueeze(0).float()
-    init_image = torch.cat([init_image, init_image[0:1, 118:119, :].clone()], dim=1)
-    # Use transform_fn instead
-    # init_image = (init_image - data.dataset.t2m_dataset.mean) / data.dataset.t2m_dataset.std
-    init_image = init_image.unsqueeze(1).permute(0, 3, 1, 2)
-    init_image = init_image.to(model_device)
-    if traject_only:
-        init_image = init_image[:, :4, :, :]
-
-    init_image = init_image.repeat(batch_size, 1, 1, 1)
-    return init_image, ground_positions
 
 
 def load_dataset(args, n_frames):

@@ -1,17 +1,9 @@
-from ast import Not
 import os
+
 import torch
 
-from utils import dist_util
-from functools import partial
-
-from sample.condition import (
-    log_trajectory_from_xstart,
-    CondKeyLocationsLoss,
-) 
-from sample.keyframe_pattern import get_kframes, get_obstacles
 from data_loaders.humanml.utils.plot_script import plot_3d_motion_static
-from utils.output_util import sample_to_motion
+from sample.keyframe_pattern import get_kframes, get_obstacles
 
 
 def prepare_task(task_info, args):
@@ -77,15 +69,10 @@ def task_trajectory_editing(task_info, args, target, target_mask):
             gt_frames=[],
         )
     else:
-        # obs_list = []
         # selected_index = [62, 90, 110]  # [0] # 
         selected_index = [90]  # [0] # 
         # target_locations = [(0.5, 0.5), (1., 1.), (1.5, 1.5)] #  [(0,0)] # 
-        target_locations = [(1.5, 1.5)] #  [(0,0)] #
-        # if DEBUG_SPECIFIC:
-        #     model_kwargs["y"]["text"] = ["a person who is standing with his arms held head high lifts his arms above his head, twice."]
-        #     selected_index = [9, 27, 46, 59, 62]
-        #     target_locations = [(0.0065, -0.0013), (0.0261, -0.0093), (0.0415, -0.0124), (-0.0191, -0.0572), (-0.0132, -0.0613)] # (-0.0132, -0.0613)]
+        target_locations = [(1.5, 1.5)]
 
     # Set up the new target based on the selected frames and the target locations
     kframes = [
@@ -190,13 +177,6 @@ def task_motion_blending(task_info, args, target, target_mask):
 
 
 def run_text_to_motion(args, diffusion, model, model_kwargs, data, init_motion_length):
-    # add CFG scale to batch
-    if args.guidance_param != 1:
-        model_kwargs["y"]["scale"] = (
-            torch.ones(args.batch_size, device=dist_util.dev())
-            * args.guidance_param
-        )
-
     if args.use_ddim:
         sample_fn = diffusion.ddim_sample_loop
         # # dump_steps for logging progress
