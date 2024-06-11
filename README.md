@@ -145,7 +145,7 @@ python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt -
 We can specific the initial motion by adding `--load_from` to the command. The initial motion should be in the same format as the target motion.
 
 ```shell
-python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --load_from save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref
+python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --load_from ./save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref
 
 ```
 

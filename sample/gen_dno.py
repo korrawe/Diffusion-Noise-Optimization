@@ -4,7 +4,6 @@ import pickle
 import shutil
 import time
 
-# For debugging
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -161,12 +160,9 @@ def main(num_trials=3):
         json.dump(vars(args), fw, indent=4, sort_keys=True)
     ############################################
 
-    # NOTE: change this for chain editing
     for rep_i in range(args.num_repetitions):
         assert args.num_repetitions == 1, "Not implemented"
-        args.load_from = "save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref"
-        # load_from = None
-        if args.load_from == '': # is None:
+        if args.load_from == '':
             # Run normal text-to-motion generation to get the starting motion
             sample = dno_helper.run_text_to_motion(
                 args, diffusion, model, model_kwargs, data, n_frames
@@ -177,13 +173,9 @@ def main(num_trials=3):
                 sample_2 = dno_helper.run_text_to_motion(
                     args, diffusion, model, model_kwargs, data, n_frames
                 )
-            # TODO: change name to init_sample
         else:
             # Load from file
-            # TODO: check loading from file
             idx_to_load = 0
-            # load_from = "save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref"
-            # load_from = "./save/mdm_avg/samples_000500000_seed10_a_person_is_walking_forward/chain1000_2_traj/"
             load_from_x = os.path.join(args.load_from , "optimized_x.pt")
             sample = torch.load(load_from_x)[None, idx_to_load].clone()
 
@@ -391,12 +383,9 @@ def main(num_trials=3):
 
         # generate with a controlled number of steps to really see the quality.
         # goal: now what can the first row samples, the last row should be able to match.
-        first_row_is_sampled_with_limited_quality = True
         first_row_is_sampled_with_limited_quality = False
 
         if first_row_is_sampled_with_limited_quality:
-            # args.ddim_step = num_ode_steps
-            # args.ddim_step = 100
             diffusion = create_gaussian_diffusion(
                 args, timestep_respacing=f"ddim{num_ode_steps}"
             )
@@ -406,15 +395,14 @@ def main(num_trials=3):
                 (args.batch_size, model.njoints, model.nfeats, n_frames),
                 clip_denoised=not args.predict_xstart,
                 model_kwargs=model_kwargs,
-                skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step # NOTE: testing this
-                init_image=None,  # input_motions,  # init_image, # None, # NOTE: testing this
+                skip_timesteps=0,
+                init_image=None,
                 progress=True,
-                dump_steps=dump_steps,  # None,
+                dump_steps=dump_steps,
                 noise=inv_noise,
                 const_noise=False,
             )
 
-        # model_kwargs['y']['text'] = ['a person walks to the right']
         #######################################
         #######################################
         ## START OPTIMIZING
