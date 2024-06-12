@@ -23,7 +23,7 @@ def prepare_task(task_info, args):
     if taskname  == "trajectory_editing":
         return task_trajectory_editing(task_info, args, target, target_mask)
     elif taskname == "pose_editing":
-        raise NotImplementedError
+        return task_pose_editing(task_info, args, target, target_mask)
     elif taskname == "dense_optimization":
         return task_dense_optimization(task_info, args, target, target_mask)
     elif taskname == "motion_projection":
@@ -90,13 +90,41 @@ def task_trajectory_editing(task_info, args, target, target_mask):
 
 
 def task_pose_editing(task_info, args, target, target_mask):
-    return target, target_mask, kframes, is_noise_init, init_motion, obs_list
+    ''' This is a more general version of the trajectory editing task where each joint can be modified.
+    The core idea is the same.
+    '''
+    # List for editing
+    # (joint_index, keyframe, edit_dim target(x, y, z))
+    # edit_dim: list of dimensions to edit [0, 1, 2] for x, y, z respectively
+    # We can edit only some dimensions of the target pose e.g. only y (height of the joint)
+    # joint_idx = 21 # Right hand
+    
+    target_edit_list = [
+        # (joint_index, keyframe, edit_dim, target(x, y, z))
+        # (21, 90, [1], [1.0]), # Right hand at frame 90th, edit height to 1.0
+        (15, 90, [1], [0.6]), # Head at frame 90th, edit height to 1.0
+
+    ]
+    kframes = []
+    obs_list = []
+    for (joint_index, keyframe, edit_dim, target_loc) in target_edit_list:
+        target[0, keyframe, joint_index, edit_dim] = torch.tensor(
+            target_loc, 
+            dtype=torch.float32, device=target.device
+        )
+        target_mask[0, keyframe, joint_index, edit_dim] = True
+        # kframes.append((keyframe, (0, 0)))
+
+
+    is_noise_init = False
+    return target, target_mask, kframes, is_noise_init, task_info["initial_motion"], obs_list
 
 
 def task_dense_optimization(task_info, args, target, target_mask):
-    """Dense optimization. This task is only to test if noise optimization can reconstruct an arbitrary motion.
-    The idea is, starting from random noise, we want to steer it toward a specific noise that can reconstruct
-    the given motion.
+    """Dense optimization. This task is only for testing if noise optimization can reconstruct an arbitrary motion.
+    The idea is, starting from random noise, we want to steer it to generate a specific motion.
+    This task is an alternative way to obtain the corresponding noise for a given motion without DDIM inversion.
+    It is also useful for debugging and providing a better idea of what the motion distribution landscape looks like.
     """
     is_noise_init = True
     kframes = []

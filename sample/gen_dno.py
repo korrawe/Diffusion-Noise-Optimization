@@ -38,7 +38,8 @@ def main(num_trials=3):
     #############################################
     ### Task selection ###
     task = ""
-    task = "trajectory_editing"
+    # task = "trajectory_editing"
+    task = "pose_editing"
     # task = "dense_optimization"
     # task = "motion_projection"
     # task = "motion_blending"
@@ -405,7 +406,7 @@ def main(num_trials=3):
 
         #######################################
         #######################################
-        ## START OPTIMIZING
+        ### OPTIMIZATION
         #######################################
         #######################################
 
@@ -450,10 +451,11 @@ def main(num_trials=3):
                 gradient_checkpoint=gradient_checkpoint,
             )
 
-        # start optimizing
+        ######## Main optimization loop #######
         noise_opt = DNO(
             model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf
         )
+        #######################################
         out = noise_opt()
 
         for t in step_out_list:

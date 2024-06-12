@@ -130,19 +130,19 @@ The model is trained on the HumanML3D dataset.
 
 
 ## Motion Synthesis
-We provide a demo code for **motion editing, in-filling, refinement, in-beetweening, and blending tasks** in `sample/gen_dno.py`. The task can be selected by commenting or uncommenting from list on lines 54-58.
+We provide a demo code for **motion editing, in-filling (and in-beetweening), refinement, and blending tasks** in `sample/gen_dno.py`. The task can be selected by commenting or uncommenting from list on lines 54-58. The dense optimization task can be used for debugging and testing the optimization process.
 
 
 **Note**: The only differences between these tasks are the reward/loss function and whether to start from DDIM inverted noise or random noise. The rest of the framework is the same.
 
-The demo targets are currently hardcoded in `sample/dno_helper.py` and can be modified to your own target (your own function or hardcoded target pose/location). 
+The demo targets are currently hardcoded in `sample/dno_helper.py` and can be modified to your own target (e.g. our own reward function or hardcoded target pose/locations). 
 In all tasks, the target pose and the mask need to be specified.
 
 ```shell
 python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping"
 ```
 
-We can specific the initial motion by adding `--load_from` to the command. The initial motion should be in the same format as the target motion.
+We can specify the initial motion by adding `--load_from` to the command. The initial motion must be in the same format as the target motion.
 
 ```shell
 python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --load_from ./save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref
@@ -159,17 +159,36 @@ For motion editing there is a UI for trajectory editing that can be used with th
 #### Content preserved editing (target location at 90th frame, motion length 120 frames):
 ![sample_edit](./assets/sample_edit.gif)
 
+
 #### Chained editing (new target at 40th frame, start from previous output motion):
 
-![sample_edit](./assets/sample_chain_edit.gif)
+![sample_chain_edit](./assets/sample_chain_edit.gif)
 
-Note: For editing, we need an inverted noise to start from. We use DDIM inversion on the input motion to get the inverted noise. As this process is an approximation, the inverted noise may not be perfect. If we have the initial noise from the previous output, we can use it as the starting point.
+#### Pose editing (lower head location at 90th frame):
+
+![sample_chain_edit_head](./assets/sample_edit_head.gif)
+
+**Note**: For editing, we need an inverted noise to start from. We use DDIM inversion on the input motion to get the inverted noise, however, this process is an approximation. If available, we can use the final noise from the previous optimization to avoid the approximation.
+
+### Motion Refinement
+Starting from noisy version of above motion:
+![sample_refinement](./assets/sample_refinement.gif)
+
+
+### Motion Blending
+"a person is walking forward" and "a person is jumping sideway":
+![sample_blending](./assets/sample_blending.gif)
+
+### Motion Inbeetweening
+Original motion generated with "a person is walking slightly to the left":
+![sample_inbetweening](./assets/sample_inbetween.gif)
+
 
 ## Useful Notes
 - We use 500-800 iterations for the optimization with 10 DDIM steps. The number of iterations can be adjusted with the `num_opt_steps` in `DNOOption` and `num_ode_steps` in `gen_dno.py`.
 - More iterations can lead to better results but also longer computation time. DDIM steps can be increased as well.
 - We found that more DDIM steps require more iterations to converge (1000-2000 steps) but generally produce better results.
-- DDIM inversion step can be reduced to 100 steps and it will still work well in most case. For chained editing, we will need more accurate inverted noise so we recommend using 1000 steps. The more edits we made, the farther we are from the learned distribution so we need more accurate inverted noise.
+- DDIM inversion step can be reduced to 100 steps and it will still work well in most case. For chained editing, we need more accurate inverted noise so we recommend using 1000 steps. The more edits we made, the farther we are from the learned distribution so we need more accurate inverted noise.
 
 ## Evaluation
 We provide a script to evaluate the refinement task. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion.
@@ -183,7 +202,7 @@ To be updated.
 
 ## Acknowledgments
 
-We would like to thank the following contributors for the great foundation that we build upon:
+We build upon many prior projects and would like to thank the following contributors for the great foundation:
 
 [GMD](https://github.com/korrawe/guided-motion-diffusion),
 [MDM](https://github.com/GuyTevet/motion-diffusion-model), [guided-diffusion](https://github.com/openai/guided-diffusion), [MotionCLIP](https://github.com/GuyTevet/MotionCLIP), [text-to-motion](https://github.com/EricGuo5513/text-to-motion), [actor](https://github.com/Mathux/ACTOR), [joints2smpl](https://github.com/wangsen1312/joints2smpl), [MoDi](https://github.com/sigal-raab/MoDi).
