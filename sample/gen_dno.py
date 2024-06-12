@@ -673,7 +673,6 @@ def load_dataset(args, n_frames):
         # drop_redundant=args.drop_redundant,
     )
     data = get_dataset_loader(conf)
-    # what's this for?
     data.fixed_length = n_frames
     return data
 
