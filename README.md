@@ -156,15 +156,18 @@ For motion editing there is a UI for trajectory editing that can be used with th
 - Click add.
 - Repeat until you are satisfy then click done.
 
-#### Content preserved editing (target location at 90th frame, motion length 120 frames):
+#### Content-preserved Editing
+Target location at 90th frame, motion length 120 frames:
 ![sample_edit](./assets/sample_edit.gif)
 
 
-#### Chained editing (new target at 40th frame, start from previous output motion):
-
+#### Chained Editing
+New target at 40th frame, start from previous output motion:
 ![sample_chain_edit](./assets/sample_chain_edit.gif)
 
-#### Pose editing (lower head location at 90th frame):
+
+#### Pose Editing
+Lower head location at 90th frame:
 
 ![sample_chain_edit_head](./assets/sample_edit_head.gif)
 
