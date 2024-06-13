@@ -24,9 +24,9 @@ If you find this code useful in your research, please cite:
 
 ## News
 
-📢 **9/May/24** - Initial release with functional generation and evaluation code. This is an early release so please expect some undocumented piece of code.
+📢 **13/June/24** - Full code release with demo.
 
-Visualization code and detailed comments will follow.
+📢 **9/May/24** - Initial release with functional generation and evaluation code.
 
 
 ## Getting started
