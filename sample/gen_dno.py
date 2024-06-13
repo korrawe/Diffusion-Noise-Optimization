@@ -360,12 +360,9 @@ def main(num_trials=3):
 
         ######## DDIM inversion ########
         # Do inversion to get the initial noise for editing
-        inverse_step = 999 # 99  # 30
-        diffusion_invert = create_gaussian_diffusion(args, timestep_respacing="ddim1000")
-        cur_t = inverse_step  # 100 - inverse_step
+        inverse_step = 100  # 1000
+        diffusion_invert = create_gaussian_diffusion(args, timestep_respacing=f"ddim{inverse_step}")
         dump_steps = [0, 5, 10, 20, 30, 40, 49]
-        shape = (args.batch_size, model.njoints, model.nfeats, n_frames)
-
         # dump_steps = [0, 5, 10, 15, 20, 25, 29]
         if task == "motion_blending":
             # motion_to_invert = gen_sample_full.clone()
