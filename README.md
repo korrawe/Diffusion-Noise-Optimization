@@ -96,15 +96,14 @@ There are two paths to get the data:
 
 #### a. Generation only (text only)
 
-**HumanML3D** - Clone HumanML3D, then copy the data dir to our repository:
+**HumanML3D** - Clone [HumanML3D](https://github.com/EricGuo5513/HumanML3D.git), then copy the data dir to our repository:
 
 ```shell
 cd ..
 git clone https://github.com/EricGuo5513/HumanML3D.git
 unzip ./HumanML3D/HumanML3D/texts.zip -d ./HumanML3D/HumanML3D/
-cp -r HumanML3D/HumanML3D motion-diffusion-model/dataset/HumanML3D
-cd motion-diffusion-model
-cp -a dataset/HumanML3D_abs/. dataset/HumanML3D/
+cp -r HumanML3D/HumanML3D Diffusion-Noise-Optimization/dataset/HumanML3D
+cd Diffusion-Noise-Optimization
 ```
 
 
@@ -174,7 +173,7 @@ Lower head location at 90th frame:
 **Note**: For editing, we need an inverted noise to start from. We use DDIM inversion on the input motion to get the inverted noise, however, this process is an approximation. If available, we can use the final noise from the previous optimization to avoid the approximation.
 
 ### Motion Refinement
-Starting from noisy version of above motion:
+Starting from noisy version of the above motion:
 ![sample_refinement](./assets/sample_refinement.gif)
 
 

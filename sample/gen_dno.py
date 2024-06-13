@@ -38,8 +38,8 @@ def main(num_trials=3):
     #############################################
     ### Task selection ###
     task = ""
-    # task = "trajectory_editing"
-    task = "pose_editing"
+    task = "trajectory_editing"
+    # task = "pose_editing"
     # task = "dense_optimization"
     # task = "motion_projection"
     # task = "motion_blending"
@@ -668,11 +668,6 @@ def load_dataset(args, n_frames):
         split="test",
         hml_mode="text_only",  # 'train'
         traject_only=False,
-        # use_random_projection=args.use_random_proj,
-        # random_projection_scale=args.random_proj_scale,
-        # augment_type="none",
-        # std_scale_shift=args.std_scale_shift,
-        # drop_redundant=args.drop_redundant,
     )
     data = get_dataset_loader(conf)
     data.fixed_length = n_frames
@@ -743,7 +738,7 @@ def ddim_invert(
     motion,  # image: torch.Tensor,
     model_kwargs,  # prompt,
     dump_steps=[],
-    num_inference_steps=99,  # 100, # 50,
+    num_inference_steps=99,
     eta=0.0,
     clip_denoised=False,
     **kwds,
@@ -756,7 +751,6 @@ def ddim_invert(
     xt_list = [latents]
     pred_x0_list = [latents]
     indices = list(range(num_inference_steps))  # start_t #  - skip_timesteps))
-    # from tqdm import tqdm
 
     for i, t in enumerate(tqdm(indices, desc="DDIM Inversion")):
         # print(i, t)

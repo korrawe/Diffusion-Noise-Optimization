@@ -130,7 +130,6 @@ dmypy.json
 
 # experiments
 save/
-dataset/
 kit/
 t2m/
 glove/
