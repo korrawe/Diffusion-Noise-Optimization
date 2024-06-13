@@ -3,7 +3,7 @@ DNO: Optimizing Diffusion Noise Can Serve As Universal Motion Priors
 
 [![arXiv](https://img.shields.io/badge/arXiv-<2312.11994>-<COLOR>.svg)](https://arxiv.org/abs/2312.11994)
 
-The official PyTorch implementation of the paper [**"DNO: Optimizing Diffusion Noise Can Serve As Universal Motion Priors"**](https://arxiv.org/abs/).
+The official PyTorch implementation of the paper [**"DNO: Optimizing Diffusion Noise Can Serve As Universal Motion Priors"**](https://arxiv.org/abs/2312.11994).
 
 Visit our [**project page**](https://korrawe.github.io/dno-project/) for more details.
 
@@ -145,8 +145,10 @@ We can specify the initial motion by adding `--load_from` to the command. The in
 
 ```shell
 python -m sample.gen_dno --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --load_from ./save/mdm_avg_dno/samples_000500000_avg_seed20_a_person_is_jumping/trajectory_editing_dno_ref
-
 ```
+
+#### Addional options:
+- You can use `--seed` to specify the seed for the random noise and generation.
 
 ### Motion Editing
 For motion editing there is a UI for trajectory editing that can be used with the flag `USE_GUI` as follows: 
@@ -193,10 +195,11 @@ Original motion generated with "a person is walking slightly to the left":
 - DDIM inversion step can be reduced to 100 steps and it will still work well in most case. For chained editing, we need more accurate inverted noise so we recommend using 1000 steps. The more edits we made, the farther we are from the learned distribution so we need more accurate inverted noise.
 
 ## Evaluation
-We provide a script to evaluate the refinement task. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion.
+We provide a script to evaluate the **refinement task**. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion. This will produce the DNO-MDM results in Table 2 of our paper.
 ```shell
 python -m eval.eval_refinement --model_path ./save/mdm_avg_dno/model000500000_avg.pt
 ```
+The generation can be sped up by incresing the batch size in the `evaluation()` function.
 
 ## Visualization
 To be updated.
