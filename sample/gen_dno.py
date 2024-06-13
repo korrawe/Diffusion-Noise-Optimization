@@ -360,7 +360,7 @@ def main(num_trials=3):
 
         ######## DDIM inversion ########
         # Do inversion to get the initial noise for editing
-        inverse_step = 100  # 1000
+        inverse_step = 100  # 1000 for more previse inversion
         diffusion_invert = create_gaussian_diffusion(args, timestep_respacing=f"ddim{inverse_step}")
         dump_steps = [0, 5, 10, 20, 30, 40, 49]
         # dump_steps = [0, 5, 10, 15, 20, 25, 29]

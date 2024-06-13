@@ -1,6 +1,1 @@
-# Ignore everything in this directory
-*
-# Except this file
-!.gitignore
-!humanml_opt.txt
-!000021.npy
+HumanML3D*

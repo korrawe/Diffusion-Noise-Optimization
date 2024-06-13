@@ -662,7 +662,7 @@ if __name__ == "__main__":
         conf,
         num_samples_limit=300,
         joints="all",
-        batch_size=30,
+        batch_size=16, # 30,
         noisy=True,
         added_noise_level=0.05,
         use_gradient_checkpoint=False,
