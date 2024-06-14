@@ -194,15 +194,48 @@ Original motion generated with "a person is walking slightly to the left":
 - We found that more DDIM steps require more iterations to converge (1000-2000 steps) but generally produce better results.
 - DDIM inversion step can be reduced to 100 steps and it will still work well in most case. For chained editing, we need more accurate inverted noise so we recommend using 1000 steps. The more edits we made, the farther we are from the learned distribution so we need more accurate inverted noise.
 
+
+## Visualization
+
+**Running the generation command will get you:**
+
+* `results.npy` file with text prompts and xyz positions of the generated animation
+* `sample00_rep##.mp4` - a stick figure animation for each generated motion. `rep00` is always the original motion.
+
+**To create SMPL mesh per frame run:**
+
+```shell
+python -m visualize.render_mesh --input_path /path/to/mp4/stick/figure/file
+```
+
+**This script outputs:**
+* `sample##_rep##_smpl_params.npy` - SMPL parameters (thetas, root translations, vertices and faces)
+* `sample##_rep##_obj` - Mesh per frame in `.obj` format.
+
+
+**Notes:**
+* The `.obj` can be integrated into Blender/Maya/3DS-MAX and rendered using them.
+* This script is running [SMPLify](https://smplify.is.tue.mpg.de/) and needs GPU as well (can be specified with the `--device` flag).
+* **Important** - Do not change the original `.mp4` path before running the script.
+* You have two ways to animate the sequence:
+  1. Use the [SMPL add-on](https://smpl.is.tue.mpg.de/index.html) and the theta parameters saved to `sample##_rep##_smpl_params.npy` (we always use beta=0 and the gender-neutral model).
+  2. A more straightforward way is using the mesh data itself. All meshes have the same topology (SMPL), so you just need to keyframe vertex locations. 
+     Since the OBJs are not preserving vertices order, we also save this data to the `sample##_rep##_smpl_params.npy` file for your convenience.
+
+**For automatic rendering with Blender:**
+* To render the full-body animation (like in our teaser figure and the video), we refer the user to the rendering script of [TEMOS](https://github.com/Mathux/TEMOS) under *Rendering motions*.
+* The script can take the resulting `sample##_rep##_smpl_params.npy` from SMPL fitting command above and render the full-body animation.
+
+
+
 ## Evaluation
-We provide a script to evaluate the **refinement task**. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion. This will produce the DNO-MDM results in Table 2 of our paper.
+We provide a script to evaluate the **refinement task**. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion. This will produce the *DNO-MDM* results in Table 2 of our paper.
 ```shell
 python -m eval.eval_refinement --model_path ./save/mdm_avg_dno/model000500000_avg.pt
 ```
-The generation can be sped up by incresing the batch size in the `evaluation()` function.
+The generation can be sped up by incresing the batch size in the `evaluation()` function at the cost of GPU memory.
 
-## Visualization
-To be updated.
+
 
 
 ## Acknowledgments

@@ -275,87 +275,7 @@ def main(num_trials=3):
 
         # At this point, we need to have (1) target, (2) target_mask, (3) kframes, (4, optional) initial motion
 
-        ########################################
-        # TODO: move SMPL visualization to a separate function
-        SAVE_FOR_RENDERING = False  # True
-        if SAVE_FOR_RENDERING:
-            # Save additional objects for rendering
-            additional_objects = {
-                "drag": [],
-                "obs": [],
-                "target": [],
-            }
-            # Save obstacles
-            for obs_i, obs in enumerate(obs_list):
-                additional_objects["obs"].append((obs[0][0], obs[0][1], obs[1]))
-                # selected_index = [62, 90, 110]
-                #         target_locations = [(0.5, 0.5), (1., 1.), (1.5, 1.5)]
-            if task == "motion_inbetweening":
-                for cur_kframe in kframes:
-                    for joint_idx in range(22):
-                        additional_objects["target"].append(
-                            initial_motion[cur_kframe[0], joint_idx]
-                        )
-
-            elif task == "trajectory_editing":
-                # selected_index = [70]
-
-                # joint_idx = 0 # Pelvis
-                joint_idx = 15  # Head
-                # joint_idx = 21 # Right hand
-
-                # Hack for hand and head editing
-                Hack = True
-                # Hack = False
-                if Hack:
-                    # selected_index = [70]
-                    selected_index = [110]
-                    target[:, :120, :, :] = (
-                        torch.from_numpy(initial_motion)
-                        .to(model_device)
-                        .repeat(num_trials, 1, 1, 1)
-                    )
-                    # target_mask = target_mask.repeat(num_trials, 1, 1, 1)
-
-                for idx, edit_index in enumerate(selected_index):
-                    if joint_idx == 21:
-                        change = 0.90  # 1.5
-                        edit_from = initial_motion[edit_index, joint_idx, [0, 2, 1]]
-                        edit_from = (edit_from[0], edit_from[1], edit_from[2])
-                        edit_to = edit_from
-                        edit_to = (edit_to[0], edit_to[1], edit_to[2] + change)
-                        target_mask[:, :, :, :] = False
-                        target_mask[:, edit_index, joint_idx, :] = True
-                        target[:, edit_index, joint_idx, 1] = (
-                            target[:, edit_index, joint_idx, 1] + change
-                        )
-                    elif joint_idx == 15:
-                        change = -0.5
-                        edit_from = initial_motion[edit_index, joint_idx, [0, 2, 1]]
-                        edit_from = (edit_from[0], edit_from[1], edit_from[2])
-                        edit_to = edit_from
-                        edit_to = (edit_to[0], edit_to[1], edit_to[2] + change)
-                        target_mask[:, :, :, :] = False
-                        target_mask[:, edit_index, joint_idx, :] = True
-                        target[:, edit_index, joint_idx, 1] = (
-                            target[:, edit_index, joint_idx, 1] + change
-                        )
-
-                    elif joint_idx == 0:
-                        edit_from = initial_motion[edit_index, 0, [0, 2]]
-                        edit_from = (edit_from[0], edit_from[1], 0)
-                        edit_to = target_locations[idx]
-                        edit_to = (edit_to[0], edit_to[1], 0)
-                    additional_objects["drag"].append((edit_from, edit_to))
-            # Save target
-
-            # Save additional_objects to a pickle file
-            pickle_file = os.path.join(out_path, "additional_objects.pkl")
-            with open(pickle_file, "wb") as f:
-                pickle.dump(additional_objects, f)
-        #########################################
-
-        # optimize without text
+        # Optimization is done without text
         model_kwargs["y"]["text"] = [""]
 
         ######## DDIM inversion ########
@@ -373,7 +293,7 @@ def main(num_trials=3):
             diffusion_invert,
             model,
             motion_to_invert,
-            model_kwargs=model_kwargs,  # model_kwargs['y']['text'],
+            model_kwargs=model_kwargs,
             dump_steps=dump_steps,
             num_inference_steps=inverse_step,
             clip_denoised=False,
@@ -503,34 +423,17 @@ def main(num_trials=3):
             ] + [f"Prediction {i+1}" for i in range(num_trials)]
             args.num_samples = 3 + num_trials
 
-            # for ii in range(len(sample)):
-            #     sample[ii][1] = sample_2[ii][0, :, :, :gen_frames]
-            # # Plot half-half motion at the last row
-            # sample[-1] = gen_sample[0]
         else:
             motion_to_vis = torch.cat([sample, final_out], dim=0)
             captions = [
                 "Original",
-                # "Reconstruction",
             ] + [f"Prediction {i+1}" for i in range(num_trials)]
             args.num_samples = 1 + num_trials
 
-        # if task == "trajectory_editing":
-        # save optimized sample
         torch.save(out["z"], os.path.join(out_path, "optimized_z.pt"))
         torch.save(out["x"], os.path.join(out_path, "optimized_x.pt"))
 
         ###################
-        ##### save editing path #####
-        # additional_objects = {
-        #     "drag": ((0., 0., 0.), (2, 2., 0.)), # Start - end
-        #     "obs": (1., -1., 0., 0.5), # x, y, z, radius
-        #     "target": (0., 0., 0.), # x, y, z
-        # }
-        # # Save additional_objects to a pickle file
-        # with open(pickle_file, "wb") as f:
-        #     pickle.dump(additional_objects, f)
-
         num_dump_step = 1
         args.num_dump_step = num_dump_step
 
@@ -750,7 +653,6 @@ def ddim_invert(
     indices = list(range(num_inference_steps))  # start_t #  - skip_timesteps))
 
     for i, t in enumerate(tqdm(indices, desc="DDIM Inversion")):
-        # print(i, t)
         t = torch.tensor([t] * latents.shape[0], device=latents.device)
         out = diffusion.ddim_reverse_sample(
             model,
@@ -769,7 +671,6 @@ def ddim_invert(
         for ss in reversed(dump_steps):
             print("save step: ", ss)
             pred_x0_list_out.append(pred_x0_list[ss])
-        # return latents, pred_x0_list_out
         return latents, pred_x0_list_out
 
     return latents

@@ -18,8 +18,6 @@ if __name__ == '__main__':
 
     if task == "normal":
         assert params.input_path.endswith('.mp4')
-        # # sample_i = 2 # params.sample #  1
-        # # rep_i = 6 # 6
         parsed_name = os.path.basename(params.input_path).replace('.mp4', '').replace('sample', '').replace('rep', '')
         sample_i, rep_i = [int(e) for e in parsed_name.split('_')]
         npy_path = os.path.join(os.path.dirname(params.input_path), 'results.npy')
@@ -37,15 +35,11 @@ if __name__ == '__main__':
                                     device=params.device, cuda=params.cuda)
 
         print('Saving obj files to [{}]'.format(os.path.abspath(results_dir)))
-        # import pdb; pdb.set_trace()
         for frame_i in tqdm(range(npy2obj.real_num_frames)):
             npy2obj.save_ply(os.path.join(results_dir, 'frame{:03d}.ply'.format(frame_i)), frame_i)
 
-        # print('Saving SMPL params to [{}]'.format(os.path.abspath(out_npy_path)))
-        # npy2obj.save_npy(out_npy_path)
-
         print("merge ply to npy for mesh rendering")
-        vis_utils.plys2npy(results_dir, results_dir) # os.path.dirname(results_dir))
+        vis_utils.plys2npy(results_dir, results_dir)
 
 
     elif task == "motion_refinement":
@@ -54,17 +48,16 @@ if __name__ == '__main__':
                 motion_id = ii # 0
                 sample_i = ii
                 rep_i = 0
-                NOISY_INPUT = if_noisy # True
-                # NOISY_INPUT = False
+                NOISY_INPUT = if_noisy  # True
                 if NOISY_INPUT:
                     bf = "_noisy"
                 else:
                     bf = ""
 
-                base_path = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/eval_motion_projection_noise0.05_noiseopt500_unroll10_adam-0.9-0.999_lr0.05_warmup50_cosine500_noise0_gradunit_decorr1000.0_stop2_newx_bs15/"
-                npy_path = base_path + "results" + f"{bf}" +".npy"
-                out_npy_path = base_path + f"{motion_id}" + f"{bf}" + "_smpl_params.npy"
-                results_dir = base_path + f"{motion_id}" + f"{bf}" + "_obj"
+                base_path = os.path.dirname(params.input_path)
+                npy_path = os.path.join(base_path, "results" + f"{bf}" +".npy")
+                out_npy_path = os.path.join(base_path, f"{motion_id}" + f"{bf}" + "_smpl_params.npy")
+                results_dir = os.path.join(base_path, f"{motion_id}" + f"{bf}" + "_obj")
 
                 if os.path.exists(results_dir):
                     shutil.rmtree(results_dir)
@@ -79,20 +72,8 @@ if __name__ == '__main__':
                 for frame_i in tqdm(range(npy2obj.real_num_frames)):
                     npy2obj.save_ply(os.path.join(results_dir, 'frame{:03d}.ply'.format(frame_i)), frame_i)
 
-                # print('Saving SMPL params to [{}]'.format(os.path.abspath(out_npy_path)))
-                # npy2obj.save_npy(out_npy_path)
-
                 print("merge ply to npy for mesh rendering")
-                vis_utils.plys2npy(results_dir, results_dir) # os.path.dirname(results_dir))
-
-                # additional_objects = {
-                #     "drag": ((0., 0., 0.), (2, 2., 0.)), # Start - end
-                #     "obs": (1., -1., 0., 0.5), # x, y, z, radius
-                #     "target": (0., 0., 0.), # x, y, z
-                # }
-                # # Save additional_objects to a pickle file
-                # with open(pickle_file, "wb") as f:
-                #     pickle.dump(additional_objects, f)
+                vis_utils.plys2npy(results_dir, results_dir)
 
     elif task == "motion_editing":
         # BEFORE_EDIT = True
@@ -108,13 +89,10 @@ if __name__ == '__main__':
             else:
                 bf = ""
 
-            # base_path = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/eval_edit_000500000/seed10_a_person_is_jumping/noiseopt300_unroll10_adam-0.9-0.999_lr0.05_warmup50_cosine300_noise0_diff0.002_gradunit/"
-            base_path = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/eval_edit_000500000/seed10_a_person_is_walking_with_raised_hands/noiseopt300_unroll10_adam-0.9-0.999_lr0.05_warmup50_cosine300_noise0_diff0.002_gradunit/"
-            # base_path = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/eval_edit_000500000/seed10_a_person_is_crawling/noiseopt300_unroll10_adam-0.9-0.999_lr0.05_warmup50_cosine300_noise0_diff0.002_gradunit/"
-            # base_path = "/home/korrawe/motion_gen/motion-diffusion-model/save/mdm_avg/eval_edit_000500000/seed10_a_person_is_doing_a_long_jump/noiseopt300_unroll10_adam-0.9-0.999_lr0.05_warmup50_cosine300_noise0_diff0.002_gradunit/"
-            npy_path = base_path + "results" + f"{bf}" +".npy"
-            out_npy_path = base_path + f"{motion_id}" + f"{bf}" + "_smpl_params.npy"
-            results_dir = base_path + f"{motion_id}" + f"{bf}" + "_obj"
+            base_path = os.path.dirname(params.input_path)
+            npy_path = os.path.join(base_path, "results" + f"{bf}" +".npy")
+            out_npy_path = os.path.join(base_path, f"{motion_id}" + f"{bf}" + "_smpl_params.npy")
+            results_dir = os.path.join(base_path, f"{motion_id}" + f"{bf}" + "_obj")
 
             if os.path.exists(results_dir):
                 shutil.rmtree(results_dir)
@@ -125,14 +103,11 @@ if __name__ == '__main__':
                                         device=params.device, cuda=params.cuda)
 
             print('Saving obj files to [{}]'.format(os.path.abspath(results_dir)))
-            # import pdb; pdb.set_trace()
             for frame_i in tqdm(range(npy2obj.real_num_frames)):
                 npy2obj.save_ply(os.path.join(results_dir, 'frame{:03d}.ply'.format(frame_i)), frame_i)
 
-            # print('Saving SMPL params to [{}]'.format(os.path.abspath(out_npy_path)))
-            # npy2obj.save_npy(out_npy_path)
 
             print("merge ply to npy for mesh rendering")
-            vis_utils.plys2npy(results_dir, results_dir) # os.path.dirname(results_dir))
+            vis_utils.plys2npy(results_dir, results_dir)
 
 

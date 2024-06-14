@@ -22,7 +22,7 @@ class npy2obj:
         self.sample_idx = sample_idx
         self.total_num_samples = self.motions['num_samples']
         self.rep_idx = rep_idx
-        self.absl_idx = self.rep_idx*self.total_num_samples + self.sample_idx
+        self.absl_idx = self.sample_idx*self.total_num_samples + self.rep_idx
         self.num_frames = self.motions['motion'][self.absl_idx].shape[-1]
         self.j2s = joints2smpl(num_frames=self.num_frames, device_id=device, cuda=cuda)
 
@@ -43,10 +43,6 @@ class npy2obj:
                                      vertstrans=True)
         self.root_loc = self.motions['motion'][:, -1, :3, :].reshape(1, 1, 3, -1)
 
-        # import pdb; pdb.set_trace()
-        # self.vertices += self.root_loc
-        # self.vertices[:, :, 1, :] += self.root_loc[:, :, 1, :]
-
     def get_vertices(self, sample_i, frame_i):
         return self.vertices[sample_i, :, :, frame_i].squeeze().tolist()
 
@@ -55,10 +51,7 @@ class npy2obj:
                        faces=self.faces)
     
     def get_traj_sphere(self, mesh):
-        # import pdb; pdb.set_trace()
         root_posi = np.copy(mesh.vertices).mean(0) # (6000, 3)
-        # import pdb; pdb.set_trace()
-        # root_posi[1] = mesh.vertices.min(0)[1] + 0.1
         root_posi[1]  = self.vertices.numpy().min(axis=(0, 1, 3))[1] + 0.1
         mesh = trimesh.primitives.Sphere(radius=0.05, center=root_posi, transform=None, subdivisions=1)
         return mesh
@@ -111,8 +104,6 @@ def plys2npy(ply_dir, out_dir):
         vs = mesh.vertices
         assert vs.shape == (6890, 3)
         meshs[i] = vs 
-        # if i == 119:
-        #     import pdb; pdb.set_trace()
 
     basename = os.path.basename(ply_dir)
     if basename.startswith("SMPLFit_"):
