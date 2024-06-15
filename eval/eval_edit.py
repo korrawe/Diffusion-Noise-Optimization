@@ -678,7 +678,7 @@ def load_dataset(args, n_frames):
         batch_size=args.batch_size,
         num_frames=args.max_frames,
         split="test",
-        hml_mode="text_only",
+        hml_mode="text_only",  # 'train'
         traject_only=False,
     )
     data = get_dataset_loader(conf)
