@@ -237,7 +237,7 @@ python -m eval.eval_refinement --model_path ./save/mdm_avg_dno/model000500000_av
 The generation can be sped up by incresing the batch size in the `evaluation()` function at the cost of GPU memory.
 
 ### Motion Editing
-The script will generate motions from the given text prompt and randomly change a location in a single frame to a new location. This will produce the *DNO-MDM* results in Table 3 of our paper.
+The script will generate motions from the given text prompt and randomly change a location in a single frame to a new location. This will produce the *DNO-MDM* results in Table 1 of our paper.
 ```shell
 python -m eval.eval_edit --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --seed 10
 ```
