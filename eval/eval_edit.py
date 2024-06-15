@@ -1,62 +1,28 @@
-# This code is based on https://github.com/openai/guided-diffusion
-"""
-Generate a large batch of image samples from a model and save them as a large
-numpy array. This can be used to produce samples for FID evaluation.
-"""
-from dataclasses import asdict
-from functools import partial
-import glob
-import math
-from pprint import pprint
-from utils.fixseed import fixseed
-import os
-import time
-import numpy as np
-import pickle
-import torch
-import copy
 import json
-from tqdm import tqdm
-from utils.parser_util import GenerateArgs, generate_args
-from utils.model_util import (
-    create_model_and_diffusion,
-    load_saved_model,
-    create_gaussian_diffusion,
-)
-from utils.output_util import (
-    # sample_to_motion,
-    construct_template_variables,
-    save_multiple_samples,
-)
-from data_loaders.humanml.data.dataset import HumanML3D, abs3d_to_rel, sample_to_motion
-from utils.generation_template import get_template
-from utils import dist_util
-from model.cfg_sampler import ClassifierFreeSampleModel
-from data_loaders.get_data import DatasetConfig, get_dataset_loader
-from data_loaders.humanml.scripts.motion_process import process_file, recover_from_ric
+import math
+import os
+import pickle
+
+import numpy as np
+import torch
+
 import data_loaders.humanml.utils.paramUtil as paramUtil
-from data_loaders import humanml_utils
-from data_loaders.humanml.utils.plot_script import plot_3d_motion, plot_3d_motion_static
-import shutil
+from data_loaders.get_data import DatasetConfig, get_dataset_loader
+from data_loaders.humanml.data.dataset import HumanML3D, sample_to_motion
+from data_loaders.humanml.utils.metrics import (calculate_skating_ratio,
+                                                compute_jitter)
+from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
-from sample.noise_optimizer import NoiseOptimizer, NoiseOptOptions
-from data_loaders.humanml.utils.metrics import calculate_skating_ratio, compute_jitter
-
-from torch.cuda import amp
-from sample.condition import (
-    CondKeyLocationsLoss,
-)
-import os.path as osp
-
-from sample.keyframe_pattern import get_kframes, get_obstacles
-
-# For debugging
-import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
-import seaborn as sns
-from multiprocessing import get_context
-from functools import partial
+from dno import DNO, DNOOptions
 from eval.calculate_fid import calculate_fid_given_two_populations
+from model.cfg_sampler import ClassifierFreeSampleModel
+from sample.condition import CondKeyLocationsLoss
+from sample.gen_dno import ddim_invert, ddim_loop_with_gradient
+from utils import dist_util
+from utils.fixseed import fixseed
+from utils.model_util import (create_gaussian_diffusion,
+                              create_model_and_diffusion, load_model_wo_clip)
+from utils.parser_util import generate_args
 
 
 def plot_debug(motion_to_plot, name, gen_loader, length):
@@ -168,6 +134,7 @@ def calculate_results(motion_before_edit, generated_motions, target_motions, tar
             content_ratio = (gen_head_below == bf_edit_content_list[first_gen_idx]).sum() / max_frames
         else:
             content_ratio = 0
+            raise ValueError(f"Unknown text prompt for content evaluation: {text}")
         metrics['Content preservation'].append(content_ratio.item())
 
     # Calculate FID
@@ -180,54 +147,31 @@ def calculate_results(motion_before_edit, generated_motions, target_motions, tar
 
 
 def main():
-    max_samples = 96 # 32 # 96
+    '''
+    Evaluation code for location editing. We used 4 prompts for evaluation:
+    "a person is walking with raised hands", "a person is jumping", 
+    "a person is crawling", "a person is doing a long jump"
+    The command is: python -m eval.eval_edit --model_path ./save/mdm_avg/model000500000.pt --text_prompt "...(above text)..."
+    '''
+    max_samples = 96 # 32
     opt_batch_size = 16 # 4
     num_total_batches = math.ceil(max_samples / opt_batch_size)
     # We will generate a new original motion for each batch
     n_keyframe = 1
 
-    # noise_opt_conf = NoiseOptOptions(
-    #     unroll_steps=10,  #
-    #     opt_steps=opt_steps,  #
-    #     optimizer="adam", # adam
-    #     grad_mode='unit', # sign, unit
-    #     lr=lr,
-    #     perturb_scale=lr/100, # lr/100 best
-    #     diff_penalty_scale=0,
-    #     decorrelate_scale=2e6, # 2e6, 1e6 (for split grad), 100 (for combined grad),  1e3 (for unit grad, split)
-    #     separate_backward_for_ode=True,
-    #     standardize_z_after_step=True,
-    #     postfix="_fixrandombias"
-    # )
-    opt_steps = 300 # 10
-    lr = 5e-2 # 5e-2 (adam), 0.02 (sgd)
-    #### Noise Optimization Config ####
-    noise_opt_conf = NoiseOptOptions(
-        unroll_steps=10, # 10,  #
-        opt_steps=opt_steps,  #
-        optimizer="adam", # adam
-        grad_mode="unit",
-        lr=lr,
-        perturb_scale=0, # lr/100 best
-        diff_penalty_scale=2e-3, #  0,
-        # explode
-        decorrelate_scale=0, # 1e3, # 1e3, # 1e6 (for split grad), 100 (for combined grad)
-        separate_backward_for_ode=False,
-        lr_warm_up_steps=50,
-        lr_scheduler="cosine",
-        lr_decay_steps=opt_steps,
+    num_ode_steps = 10
+    OPTIMIZATION_STEP = 300
+    noise_opt_conf = DNOOptions(
+        num_opt_steps=OPTIMIZATION_STEP,
+        diff_penalty_scale=2e-3,
+        decorrelate_scale=0,
     )
+
     args = generate_args()
     args.device = 0
     args.use_ddim = True
-
     print(args.__dict__)
     print(args.arch)
-    print("##### Additional Guidance Mode: %s #####" % args.guidance_mode)
-    
-
-    # Update args according to guidance mode
-    args = get_template(args, template_name=args.guidance_mode)
 
     fixseed(args.seed)
 
@@ -235,22 +179,19 @@ def main():
     name = os.path.basename(os.path.dirname(args.model_path))
     niter = os.path.basename(args.model_path).replace("model", "").replace(".pt", "")
 
-    max_frames = 196
+    args.max_frames = 196
     fps = 20
-    n_frames = max_frames
-    cut_frames = max_frames
+    args.fps = fps
+    n_frames = min(args.max_frames, int(args.motion_length * fps))
     print("n_frames", n_frames)
     dist_util.setup_dist(args.device)
     # Output directory
-    # if out_path == "":
     out_path = os.path.join(
         os.path.dirname(args.model_path),
         "eval_edit_{}".format(niter),
     )
     out_path = os.path.join(out_path, f"seed{args.seed}")
     out_path += "_" + args.text_prompt.replace(" ", "_").replace(".", "")
-
-    out_path = os.path.join(out_path, noise_opt_conf.name)
 
     # this block must be called BEFORE the dataset is loaded
     if args.text_prompt != "":
@@ -265,17 +206,13 @@ def main():
     assert (
         args.num_samples <= args.batch_size
     ), f"Please either increase batch_size({args.batch_size}) or reduce num_samples({args.num_samples})"
-    # So why do we need this check? In order to protect GPU from a memory overload in the following line.
-    # If your GPU can handle batch size larger then default, you can specify it through --batch_size flag.
-    # If it doesn't, and you still want to sample more prompts, run this script with different seeds
-    # (specify through the --seed flag)
+
     args.batch_size = (
         args.num_samples
     )  # Sampling a single batch from the testset, with exactly args.num_samples
 
     print("Loading dataset...")
-    data = load_dataset(args, max_frames, n_frames)
-    total_num_samples = args.num_samples * args.num_repetitions
+    data = load_dataset(args, n_frames)
 
     print("Creating model and diffusion...")
     model, diffusion_ori = create_model_and_diffusion(args, data)
@@ -283,7 +220,8 @@ def main():
     ###################################
     # LOADING THE MODEL FROM CHECKPOINT
     print(f"Loading checkpoints from [{args.model_path}]...")
-    load_saved_model(model, args.model_path)  # , use_avg_model=args.gen_avg_model)
+    state_dict = torch.load(args.model_path, map_location="cpu")
+    load_model_wo_clip(model, state_dict)
 
     if args.guidance_param != 1:
         model = ClassifierFreeSampleModel(
@@ -291,13 +229,14 @@ def main():
         )  # wrapping model with the classifier-free sampler
     model.to(dist_util.dev())
     model.eval()  # disable random masking
+    model_device = next(model.parameters()).device
     ###################################
 
     collate_args = [
         {
             "inp": torch.zeros(n_frames),
             "tokens": None,
-            "lengths": cut_frames,
+            "lengths": n_frames,
         }
     ] * args.num_samples
 
@@ -310,63 +249,15 @@ def main():
 
     _, model_kwargs = collate(collate_args)
 
-    model_kwargs["y"]["traj_model"] = args.traj_only
+    model_kwargs["y"]["traj_model"] = False
 
     #############################################
 
     all_motions = []
-    all_lengths = []
     all_text = []
     obs_list = []
 
     model_device = next(model.parameters()).device
-    # # Load preprocessed file for inpainting test
-    # # [3, 263, 1, 120]
-    # input_motions, ground_positions = load_processed_file(
-    #     model_device, args.batch_size, args.traj_only
-    # )
-    # input_skels = recover_from_ric(input_motions.permute(0, 2, 3, 1), 22, abs_3d=False)
-    # input_skels = input_skels.squeeze(1)
-    # kframes = []
-
-    # #### Standardized conditioning
-    # # Use the same function call as used during evaluation (condition.py)
-    # kframes_num = [a for (a, b) in kframes]  # [0, 30, 60, 90, 119]
-    # kframes_posi = (
-    #     torch.tensor(kframes_num, dtype=torch.int)
-    #     .unsqueeze(0)
-    #     .repeat(args.batch_size, 1)
-    # )
-
-    ### Prepare target
-    # Get dummy skel_motions of shape [1, 22, 3, max_frames] from keyframes
-    # We do it this way so that get_target_...() can be shared across guidance modes.
-    # dummy_skel_motions = torch.zeros([1, 22, 3, n_frames])
-    # for tt, locs in kframes:
-    #     print("target at %d = %.1f, %.1f" % (tt, locs[0], locs[1]))
-    #     dummy_skel_motions[0, 0, [0, 2], tt] = torch.tensor([locs[0], locs[1]])
-    # dummy_skel_motions = dummy_skel_motions.repeat(
-    #     args.batch_size, 1, 1, 1
-    # )  # [1, 22, 3, max_frames]
-
-    ### NOTE: Prepare target for pose editing #######################
-    # POSE_EDITING = True  # False
-    # if POSE_EDITING:
-    #     gen_batch_size = 1
-    #     max_frames = 196
-    #     target_device = model_device
-    #     target = torch.zeros([gen_batch_size, max_frames, 22, 3], device=target_device)
-    #     target_mask = torch.zeros_like(target, dtype=torch.bool)
-
-    #     ### For loss target, we only compute with respect to the key points
-    #     # for (kframe, posi) in kframes:
-    #     kframes = [(0, (0.0, 0.0)), (80, (0.0, 0.0))]
-    #     for kframe in [0, 80]:
-    #         target[0, kframe, :, :] = input_skels[0, kframe, :, :]
-    #         target_mask[0, kframe, :, :] = True
-
-    ###########################################
-
     # Output path
     os.makedirs(out_path, exist_ok=True)
     args_path = os.path.join(out_path, "args.json")
@@ -381,21 +272,7 @@ def main():
             torch.ones(args.batch_size, device=dist_util.dev())
             * args.guidance_param
         )
-    print("classifier scale", args.classifier_scale)
     #####################################################
-
-    ### Evaluation ###
-    # First generate initial motion with ddim 100
-    # We will edit this motion to evaluate if the editing is successful 
-    # and can it keep the content or the original motion
-
-    # if args.use_ddim:
-    #     sample_fn = diffusion_ori.ddim_sample_loop
-    #     # dump_steps for logging progress
-    #     dump_steps = [0, 1, 10, 30, 50, 70, 99]
-    # else:
-    #     sample_fn = diffusion_ori.p_sample_loop
-    #     dump_steps = [999]
 
     # Pass functions to the diffusion
     diffusion_ori.data_get_mean_fn = data.dataset.t2m_dataset.get_std_mean
@@ -415,13 +292,13 @@ def main():
         sample = diffusion_ori.ddim_sample_loop(
             model,
             (args.batch_size, model.njoints, model.nfeats, n_frames),
-            # clip_denoised=False,
-            clip_denoised=not args.predict_xstart,
+            clip_denoised=False,
+            # clip_denoised=not args.predict_xstart,
             model_kwargs=model_kwargs,
-            skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step # NOTE: testing this
-            init_image=None,  # input_motions,  # init_image, # None, # NOTE: testing this
+            skip_timesteps=0,
+            init_image=None,
             progress=True,
-            dump_steps=None,  # None,
+            dump_steps=None,
             noise=None,
             const_noise=False,
             cond_fn=None,
@@ -440,7 +317,7 @@ def main():
                 {
                     "inp": torch.zeros(n_frames),
                     "tokens": None,
-                    "lengths": cut_frames,
+                    "lengths": n_frames,
                 }
             ] * batch_size
             is_t2m = any([args.input_text, args.text_prompt])
@@ -473,12 +350,12 @@ def main():
                 sample = diffusion_ori.ddim_sample_loop(
                     model,
                     (batch_size, model.njoints, model.nfeats, n_frames),
-                    clip_denoised=not args.predict_xstart,
+                    clip_denoised=False,  # not args.predict_xstart,
                     model_kwargs=model_kwargs,
-                    skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step # NOTE: testing this
-                    init_image=None,  # input_motions,  # init_image, # None, # NOTE: testing this
+                    skip_timesteps=0,
+                    init_image=None,
                     progress=True,
-                    dump_steps=None,  # None,
+                    dump_steps=None,
                     noise=None,
                     const_noise=False,
                     cond_fn=None,
@@ -489,7 +366,7 @@ def main():
         out = torch.cat(out, dim=0)
         return out
         
-    # Used the be the code for FID, but FID is not meaningful in this case.
+    # Used to be the code for FID, but FID is not meaningful in this case.
     do_calculate_fid = False
 
     if do_calculate_fid:
@@ -501,42 +378,21 @@ def main():
     ##### Edting here #####
     #######################
 
-    # # Visualize the generated motion
-    # gen_eff_len = min(sample[0].shape[-1], cut_frames)
-    # # Take last sample and cut to the target length
-    # gen_sample = sample[-1][:, :, :, :gen_eff_len]
-    # # Convert sample to motion
-    # gen_motions, cur_lengths, cur_texts = sample_to_motion(
-    #     gen_sample,
-    #     args,
-    #     model_kwargs,
-    #     model,
-    #     gen_eff_len,
-    #     data.dataset.t2m_dataset.inv_transform,
-    # )
-    # gen_motion_vis = gen_motions[0][0].transpose(2, 0, 1)  # [120, 22, 3]
-
     skeleton = (
         paramUtil.kit_kinematic_chain
         if args.dataset == "kit"
         else paramUtil.t2m_kinematic_chain
     )
     task = "trajectory_editing"
-    # task = "dense_optimization"
-    # task = "motion_projection"
-
     if task == "trajectory_editing":
         # Get obstacle list
         # obs_list = get_obstacles()
 
         ### Random sample the keyframes and target locations here ###
         obs_list = []
-        # model_kwargs["y"]["text"] = ["a person who is standing with his arms held head high lifts his arms above his head, twice."]
-        # selected_index = [9, 27, 46, 59, 62]
-        # target_locations = [(0.0065, -0.0013), (0.0261, -0.0093), (0.0415, -0.0124), (-0.0191, -0.0572), (-0.0132, -0.0613)] # (-0.0132, -0.0613)]
         selected_index = [102]
         target_locations = [(2, 2)]
-        target = torch.zeros([1, max_frames, 22, 3], device=model_device)
+        target = torch.zeros([1, args.max_frames, 22, 3], device=model_device)
         target_mask = torch.zeros_like(target, dtype=torch.bool)
         kframes = [
             (tt, locs) for (tt, locs) in zip(selected_index, target_locations)
@@ -547,69 +403,30 @@ def main():
                 [locs[0], locs[1]], dtype=torch.float32, device=target.device
             )
             target_mask[0, tt, 0, [0, 2]] = True
-
-
-    # # repeat num trials times on the first dimension 
-    # target = target.repeat(opt_batch_size, 1, 1, 1)
-    # target_mask = target_mask.repeat(opt_batch_size, 1, 1, 1)
+    else:
+        raise ValueError("Unknown task")
 
     ######################
     ### DDIM INVERSION ###
     ######################
     # Set text to empty
     model_kwargs["y"]["text"] = [""]
-
-    # dump_steps = [0, 5, 10, 15, 20, 25, 29]
-    inv_noise = diffusion_ori.invert(
+    inv_noise = ddim_invert(
+        diffusion_ori,
         model,
         sample.clone(),
         model_kwargs=model_kwargs,
         dump_steps=[],
-        num_inference_steps=99,
+        num_inference_steps=100,
+        clip_denoised=False,
     )
-
-    # generate with a controlled number of steps to really see the quality.
-    # goal: now what can the first row samples, the last row should be able to match.
-    # first_row_is_sampled_with_limited_quality = True
-    # first_row_is_sampled_with_limited_quality = False
-
-    # if first_row_is_sampled_with_limited_quality:
-    #     args.ddim_step = noise_opt_conf.unroll_steps
-    #     # args.ddim_step = 100
-    #     diffusion = create_gaussian_diffusion(args)
-    #     dump_steps = [0, 1, 2, 3, 5, 7, 9]
-    #     sample = diffusion.ddim_sample_loop(
-    #         model,
-    #         (args.batch_size, model.njoints, model.nfeats, n_frames),
-    #         clip_denoised=not args.predict_xstart,
-    #         model_kwargs=model_kwargs,
-    #         skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step # NOTE: testing this
-    #         init_image=None,  # input_motions,  # init_image, # None, # NOTE: testing this
-    #         progress=True,
-    #         dump_steps=dump_steps,  # None,
-    #         noise=inv_noise,
-    #         const_noise=False,
-    #     )
-
-    # Visualize the inversion process on the second row
-    # for ii in range(len(sample)):
-    #     if sample[ii].shape[0] > 1:
-    #         sample[ii][1] = pred_x0_list[ii][0]
-    #     else:
-    #         sample[ii] = torch.cat([sample[ii], pred_x0_list[ii]], dim=0)
 
     ######################
     ## START OPTIMIZING ##
     ######################
-    # Loop over target locations
-
-    # target = target.repeat(opt_batch_size, 1, 1, 1)
-    # target_mask = target_mask.repeat(opt_batch_size, 1, 1, 1)
     output_list = []
     target_list = []
     target_mask_list = []
-    first_gen_list = []
-    
     
     for ii in range(num_total_batches):
         seed_number = ii
@@ -631,7 +448,7 @@ def main():
             max_x, max_z = 2.0, 2.0
             sampled_locations = (torch.rand(opt_batch_size, n_keyframe, 2) * 2 - 1) * torch.tensor([max_x, max_z])
             sampled_locations = sampled_locations.to(model_device)
-            target = torch.zeros([opt_batch_size, max_frames, 22, 3], device=model_device)
+            target = torch.zeros([opt_batch_size, n_frames, 22, 3], device=model_device)
             target_mask = torch.zeros_like(target, dtype=torch.bool)
             for bb in range(opt_batch_size):
                 for jj in range(n_keyframe):
@@ -651,64 +468,48 @@ def main():
             print(f"Loading results from [{batch_path}]")
             final_motion = torch.load(batch_path)
         else:
-            # Prepare target
             target = target
             target_mask = target_mask
-
-            opt_step = noise_opt_conf.opt_steps
-            # inter_out = []
-            # step_out_list = [0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.95]
-            # step_out_list = [int(aa * opt_step) for aa in step_out_list]
-            # step_out_list[-1] = opt_step - 1
-            args.ddim_step = noise_opt_conf.unroll_steps
-            diffusion = create_gaussian_diffusion(args)
+            diffusion = create_gaussian_diffusion(args, f"ddim{num_ode_steps}")
             if args.guidance_param != 1:
                 model_kwargs["y"]["scale"] = (
                     torch.ones(opt_batch_size, device=model_device)
                     * args.guidance_param
                 )
 
-            # if START_FROM_NOISE:
-            #     torch.manual_seed(noise_opt_conf.starting_noise_seed)
-            #     # use the batch size that comes from main()
-            #     gen_shape = [opt_batch_size, model.njoints, model.nfeats, n_frames]
-            #     cur_xt = torch.randn(gen_shape).to(model_device)
-
             # Diffent original motion for each batch
             cur_xt = inv_noise[ii].detach().clone()
             cur_xt = cur_xt.repeat(opt_batch_size, 1, 1, 1)
             cur_xt = cur_xt.detach().requires_grad_()
-            # import pdb; pdb.set_trace()
 
             loss_fn = CondKeyLocationsLoss(
                 target=target,
                 target_mask=target_mask,
                 transform=data.dataset.t2m_dataset.transform_th,
                 inv_transform=data.dataset.t2m_dataset.inv_transform_th,
-                abs_3d=args.abs_3d,
+                abs_3d=False,
                 use_mse_loss=False,  # args.gen_mse_loss,
-                use_rand_projection=args.use_random_proj,
+                use_rand_projection=False,
                 obs_list=obs_list,
             )
             criterion = lambda x: loss_fn(x, **model_kwargs)
-            solver = lambda z: diffusion.ddim_sample_loop_full_chain(
-                model,
-                (opt_batch_size, model.njoints, model.nfeats, n_frames),
-                model_kwargs=model_kwargs,
-                skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step
-                init_image=None,
-                progress=False,  # True,
-                noise=z,  # NOTE: <-- the most important part
-                cond_fn=None,
-            )
 
-            # start optimizing
-            noise_opt = NoiseOptimizer(
-                model=solver,
-                criterion=criterion,
-                start_z=cur_xt,
-                conf=noise_opt_conf,
+            def solver(z):
+                return ddim_loop_with_gradient(
+                    diffusion,
+                    model,
+                    (opt_batch_size, model.njoints, model.nfeats, n_frames),
+                    model_kwargs=model_kwargs,
+                    noise=z,
+                    clip_denoised=False,
+                    gradient_checkpoint=False,
+                )
+
+            ######## Main optimization loop #######
+            noise_opt = DNO(
+                model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf
             )
+            #######################################
             out = noise_opt()
             final_out = out["x"].detach().clone()
             final_z = out["z"].detach().clone()
@@ -717,7 +518,7 @@ def main():
             final_motion_full_inf = diffusion.ddim_sample_loop(
                 model,
                 (opt_batch_size, model.njoints, model.nfeats, final_z.shape[3]),
-                clip_denoised=not args.predict_xstart,
+                clip_denoised=False,  # not args.predict_xstart,
                 model_kwargs=model_kwargs,
                 skip_timesteps=0,
                 init_image=None,
@@ -726,7 +527,6 @@ def main():
                 noise=final_z,
             )
             final_motion = final_motion_full_inf
-
             # Save the results per batch
             torch.save(final_motion, batch_path)
         # Add to output list
@@ -742,22 +542,18 @@ def main():
     # convert the generated motion to skeleton
     for generated in output_list:
         generated_motions_rep.append(generated)
-        generated = sample_to_motion(generated.unsqueeze(0), data.dataset, model, abs_3d=args.abs_3d)
+        generated = sample_to_motion(generated.unsqueeze(0), data.dataset, model, abs_3d=False)
         generated = generated.permute(0, 3, 1, 2)
         generated_motions.append(generated)
     # for FID
     generated_motions_rep = torch.stack(generated_motions_rep, dim=0)
-    motion_before_edit = sample_to_motion(sample_before_edit, data.dataset, model, abs_3d=args.abs_3d).permute(0, 3, 1, 2)
+    motion_before_edit = sample_to_motion(sample_before_edit, data.dataset, model, abs_3d=False).permute(0, 3, 1, 2)
 
     # (num_samples, x, x, x)
     generated_motions = torch.cat(generated_motions, dim=0)
     target_motions = torch.stack(target_list, dim=0).detach().cpu()
     target_masks = torch.stack(target_mask_list, dim=0).detach().cpu()
-    # import pdb; pdb.set_trace()
-    # (num_samples, )
 
-    
-    # import pdb; pdb.set_trace()
     save_dir = out_path
     # save_dir = os.path.join(os.path.dirname(args.model_path), f'eval_{task}_{noise_opt_conf.name}')
     log_file = os.path.join(save_dir, f'eval_N{max_samples}.txt')
@@ -767,14 +563,14 @@ def main():
         print("Saving debug videos...")
         for ii in range(len(motion_before_edit)):
             before_edit_id = f'{ii:05d}'
-            plot_debug(motion_before_edit[ii], osp.join(save_dir, f"before_edit_{before_edit_id}.mp4"), data, max_frames)
+            plot_debug(motion_before_edit[ii], os.path.join(save_dir, f"before_edit_{before_edit_id}.mp4"), data, n_frames)
 
-        start_from = 0 # 14
+        start_from = 0  # 14
         for ii in range(start_from, len(generated_motions)): 
             motion_id = f'{ii:05d}'
             before_edit_id = f'{(ii//opt_batch_size):05d}'
-            plot_debug(generated_motions[ii], osp.join(save_dir, f"{motion_id}_gen.mp4"), data, max_frames)
-            # plot_debug(target_motions[ii], osp.join(save_dir, f"{motion_id}_target.mp4"), gen_loader, motion_lengths[ii])
+            plot_debug(generated_motions[ii], os.path.join(save_dir, f"{motion_id}_gen.mp4"), data, n_frames)
+            # plot_debug(target_motions[ii], os.path.join(save_dir, f"{motion_id}_target.mp4"), gen_loader, motion_lengths[ii])
             # Concat the two videos
             os.system(f"ffmpeg -y -loglevel warning -i {save_dir}/before_edit_{before_edit_id}.mp4 -i {save_dir}/{motion_id}_gen.mp4 -filter_complex hstack {save_dir}/{motion_id}_combined.mp4")
             # Remove the generated video
@@ -783,10 +579,9 @@ def main():
             if ii > 5:
                 break
             
-    SAVE_FOR_VIS = True
+    SAVE_FOR_VIS = False
     if SAVE_FOR_VIS:
         # Edited motion
-        # import pdb; pdb.set_trace()
         npy_path = os.path.join(out_path, "results.npy")
         all_motions = generated_motions.permute(0, 2, 3, 1).detach().cpu().numpy()
         print(f"saving results file to [{npy_path}]")
@@ -795,7 +590,7 @@ def main():
             {
                 "motion": all_motions,
                 "text": all_text,
-                "lengths": np.array([max_frames] * len(generated_motions)), # all_lengths,
+                "lengths": np.array([n_frames] * len(generated_motions)),
                 "num_samples": args.num_samples,
                 "num_repetitions": args.num_repetitions,
             },
@@ -809,7 +604,7 @@ def main():
             {
                 "motion": all_motions,
                 "text": all_text,
-                "lengths": np.array([max_frames] * len(motion_before_edit)), # all_lengths,
+                "lengths": np.array([n_frames] * len(motion_before_edit)),
                 "num_samples": args.num_samples,
                 "num_repetitions": args.num_repetitions,
             },
@@ -839,11 +634,10 @@ def main():
         }
         with open(pickle_file, "wb") as f:
             pickle.dump(edit_trajs, f)
-        import pdb; pdb.set_trace()
 
 
     metrics, metrics_before_edit, fid = calculate_results(motion_before_edit, generated_motions, target_motions, 
-                                                     target_masks, max_frames, n_keyframe, text=args.text_prompt, 
+                                                     target_masks, n_frames, n_keyframe, text=args.text_prompt, 
                                                      dataset=data.dataset, 
                                                      motion_before_edit_rep=sample_before_edit if do_calculate_fid else None,
                                                      holdout_before_edit_rep=sample_holdout if do_calculate_fid else None,
@@ -867,128 +661,27 @@ def main():
                     unit_name = "(m)"
                 print(f"Metric [{metric_name} {unit_name}]: Mean {metric_values.mean():.4f}, Std {metric_values.std():.4f}")
                 print(f"Metric [{metric_name} {unit_name}]: Mean {metric_values.mean():.4f}, Std {metric_values.std():.4f}", file=f, flush=True)
-            
-        # show fid
+
         print(f"==================== FID ====================")
         print(f"==================== FID ====================", file=f, flush=True)
         for k, v in fid.items():
             print(f"{k}: {v:.4f}")
             print(f"{k}: {v:.4f}", file=f, flush=True)
 
-    return 
-
-    # NOTE: hack; for the plotter to plot three rows.
-    # args.num_samples = 3
-    args.num_samples = 2 # + num_trials
-
-    # Cut the generation to the desired length
-    # NOTE: this is important for UNETs where the input must be specific size (e.g. 224)
-    # but the output can be cut to any length
-    gen_eff_len = min(sample[0].shape[-1], cut_frames)
-    print("cut the motion length to", gen_eff_len)
-    for j in range(len(sample)):
-        sample[j] = sample[j][:, :, :, :gen_eff_len]
-    ###################
-
-    # num_dump_step = 1 # len(dump_steps)
-    # args.num_dump_step = num_dump_step
-    # # Convert sample to XYZ skeleton locations
-    # # Each return size [bs, 1, 3, 120]
-    # cur_motions, cur_lengths, cur_texts = sample_to_motion(
-    #     sample,
-    #     args,
-    #     model_kwargs,
-    #     model,
-    #     gen_eff_len,
-    #     data.dataset.t2m_dataset.inv_transform,
-    # )
-    if task == "motion_projection":
-        # import pdb; pdb.set_trace()
-        # Visualize noisy motion in the second row last column
-        cur_motions[-1][1] = (
-            target[0, :gen_eff_len, :, :].detach().cpu().numpy().transpose(1, 2, 0)
-        )
-    all_motions.extend(cur_motions)
-    all_lengths.extend(cur_lengths)
-    all_text.extend(cur_texts)
-
-    ### Save videos
-    total_num_samples = args.num_samples * args.num_repetitions * num_dump_step
-
-    # After concat -> [r1_dstep_1, r2_dstep_1, r3_dstep_1, r1_dstep_2, r2_dstep_2, ....]
-    all_motions = np.concatenate(all_motions, axis=0)  # [bs * num_dump_step, 1, 3, 120]
-    all_motions = all_motions[
-        :total_num_samples
-    ]  # #       not sure? [bs, njoints, 6, seqlen]
-    all_text = all_text[:total_num_samples]  # len() = args.num_samples * num_dump_step
-    all_lengths = np.concatenate(all_lengths, axis=0)[:total_num_samples]
-
-    npy_path = os.path.join(out_path, "results.npy")
-    print(f"saving results file to [{npy_path}]")
-    np.save(
-        npy_path,
-        {
-            "motion": all_motions,
-            "text": all_text,
-            "lengths": all_lengths,
-            "num_samples": args.num_samples,
-            "num_repetitions": args.num_repetitions,
-        },
-    )
-    with open(npy_path.replace(".npy", ".txt"), "w") as fw:
-        fw.write("\n".join(all_text))
-    with open(npy_path.replace(".npy", "_len.txt"), "w") as fw:
-        fw.write("\n".join([str(l) for l in all_lengths]))
-
-    
-    abs_path = os.path.abspath(out_path)
-    print(f"[Done] Results are at [{abs_path}]")
+    return
 
 
-def load_processed_file(model_device, batch_size, traject_only=False):
-    """Load template file for trajectory imputing"""
-    template_path = "./assets/template_joints.npy"
-    init_joints = torch.from_numpy(np.load(template_path))
-    from data_loaders.humanml.scripts.motion_process import (
-        process_file,
-        recover_root_rot_pos,
-    )
-
-    data, ground_positions, positions, l_velocity = process_file(
-        init_joints.permute(0, 3, 1, 2)[0], 0.002
-    )
-    init_image = data
-    # make it (1, 263, 1, 120)
-    init_image = torch.from_numpy(init_image).unsqueeze(0).float()
-    init_image = torch.cat([init_image, init_image[0:1, 118:119, :].clone()], dim=1)
-    # Use transform_fn instead
-    # init_image = (init_image - data.dataset.t2m_dataset.mean) / data.dataset.t2m_dataset.std
-    init_image = init_image.unsqueeze(1).permute(0, 3, 1, 2)
-    init_image = init_image.to(model_device)
-    if traject_only:
-        init_image = init_image[:, :4, :, :]
-
-    init_image = init_image.repeat(batch_size, 1, 1, 1)
-    return init_image, ground_positions
-
-
-def load_dataset(args, max_frames, n_frames):
+def load_dataset(args, n_frames):
+    print(f"args: {args}")
     conf = DatasetConfig(
         name=args.dataset,
         batch_size=args.batch_size,
-        num_frames=max_frames,
+        num_frames=args.max_frames,
         split="test",
-        hml_mode="text_only",  # 'train'
-        use_abs3d=args.abs_3d,
-        traject_only=args.traj_only,
-        use_random_projection=args.use_random_proj,
-        random_projection_scale=args.random_proj_scale,
-        augment_type="none",
-        std_scale_shift=args.std_scale_shift,
-        drop_redundant=args.drop_redundant,
+        hml_mode="text_only",
+        traject_only=False,
     )
     data = get_dataset_loader(conf)
-    # what's this for?
     data.fixed_length = n_frames
     return data
 

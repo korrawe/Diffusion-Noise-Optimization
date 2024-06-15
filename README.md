@@ -229,18 +229,29 @@ python -m visualize.render_mesh --input_path /path/to/mp4/stick/figure/file
 
 
 ## Evaluation
-We provide a script to evaluate the **refinement task**. The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion. This will produce the *DNO-MDM* results in Table 2 of our paper.
+### Motion Refinement
+The script will evaluate the model on the HumanML3D dataset by adding noise to the ground truth motion. This will produce the *DNO-MDM* results in Table 2 of our paper.
 ```shell
 python -m eval.eval_refinement --model_path ./save/mdm_avg_dno/model000500000_avg.pt
 ```
 The generation can be sped up by incresing the batch size in the `evaluation()` function at the cost of GPU memory.
 
+### Motion Editing
+The script will generate motions from the given text prompt and randomly change a location in a single frame to a new location. This will produce the *DNO-MDM* results in Table 3 of our paper.
+```shell
+python -m eval.eval_edit --model_path ./save/mdm_avg_dno/model000500000_avg.pt --text_prompt "a person is jumping" --seed 10
+```
+We used the following text prompts for the evaluation in our paper, mainly because of its ease of defining whether the content is preserved: "a person is walking with raised hands", "a person is jumping", 
+    "a person is crawling", "a person is doing a long jump"
 
+<img src="./assets/edit_combined_1.gif" width="200" height="100">
+<img src="./assets/edit_combined_2.gif" width="200" height="100">
+<img src="./assets/edit_combined_5.gif" width="200" height="100">
 
 
 ## Acknowledgments
 
-We build upon many prior projects and would like to thank the following contributors for the great foundation:
+Our code is built upon many prior projects and would like to thank the following contributors for the great foundation:
 
 [GMD](https://github.com/korrawe/guided-motion-diffusion),
 [MDM](https://github.com/GuyTevet/motion-diffusion-model), [guided-diffusion](https://github.com/openai/guided-diffusion), [MotionCLIP](https://github.com/GuyTevet/MotionCLIP), [text-to-motion](https://github.com/EricGuo5513/text-to-motion), [actor](https://github.com/Mathux/ACTOR), [joints2smpl](https://github.com/wangsen1312/joints2smpl), [MoDi](https://github.com/sigal-raab/MoDi).
