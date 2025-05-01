@@ -4,6 +4,7 @@ channels:
   - nvidia
   - anaconda
   - defaults
+  - conda-forge
 dependencies:
   - pip
   - ca-certificates
