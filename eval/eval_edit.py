@@ -56,6 +56,7 @@ def calculate_results(motion_before_edit, generated_motions, target_motions, tar
         "Objective Error": [],
     }
 
+    # See https://github.com/vchoutas/smplx/blob/main/smplx/joint_names.py
     left_foot_id = 10
     right_foot_id = 11
     left_hand_id = 20

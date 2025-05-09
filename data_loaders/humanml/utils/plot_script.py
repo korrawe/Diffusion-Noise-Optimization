@@ -2,7 +2,7 @@ import math
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+# from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import Circle
 import mpl_toolkits.mplot3d.art3d as art3d
 from matplotlib.animation import FuncAnimation, FFMpegFileWriter
@@ -60,7 +60,7 @@ def plot_3d_motion_static(save_path, kinematic_tree, joints, title, dataset, fig
         ax.set_zlim3d([-radius / 3., radius * 2 / 3.])
         # print(title)
         fig.suptitle(title, fontsize=10)
-        ax.grid(b=False)
+        ax.grid(False)
     
     def init_2d():
         ax.set_xlim([-5, 5])
@@ -68,7 +68,7 @@ def plot_3d_motion_static(save_path, kinematic_tree, joints, title, dataset, fig
         # print(title)
         fig.suptitle(title, fontsize=10)
         plt.gca().invert_yaxis()
-        ax.grid(b=False)
+        ax.grid(False)
     
     def update_value_sidebar(val):
         value = int(slider.val)
@@ -321,7 +321,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         ax.set_zlim3d([-radius / 3., radius * 2 / 3.])
         # print(title)
         fig.suptitle(title, fontsize=10)
-        ax.grid(b=False)
+        ax.grid(False)
 
     def plot_xzPlane(minx, maxx, miny, minz, maxz):
         ## Plot a plane XZ
@@ -459,9 +459,11 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     #     print(trajec.shape)
 
     def update(index):
-        #         print(index)
-        ax.lines = []
-        ax.collections = []
+        for line in ax.lines[:]:
+            line.remove()
+        # Clear existing collections
+        for collection in ax.collections[:]:
+            collection.remove()
         ax.view_init(elev=120, azim=-90)
         ax.dist = 7.5
         #         ax =
@@ -512,9 +514,9 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         plot_target_pose(target_pose, gt_frames, data_copy[index, 0, :], colors_blue, kinematic_tree)
 
         plt.axis('off')
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_zticklabels([])
+        ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+        ax.tick_params(axis='y', which='both', left=False, right=False, labelleft=False, labelright=False)
+        ax.tick_params(axis='z', which='both', left=False, right=False, labelleft=False, labelright=False)
 
     ani = FuncAnimation(fig, update, frames=frame_number, interval=1000 / fps, repeat=False)
 

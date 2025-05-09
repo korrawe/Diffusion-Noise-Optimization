@@ -1,7 +1,7 @@
 # Diffusion-Noise-Optimization
 DNO: Optimizing Diffusion Noise Can Serve As Universal Motion Priors
 
-[![arXiv](https://img.shields.io/badge/arXiv-<2312.11994>-<COLOR>.svg)](https://arxiv.org/abs/2312.11994)
+[![arXiv](https://img.shields.io/badge/arXiv-2312.11994-4c1.svg)](https://arxiv.org/abs/2312.11994)
 
 The official PyTorch implementation of the paper [**"DNO: Optimizing Diffusion Noise Can Serve As Universal Motion Priors"**](https://arxiv.org/abs/2312.11994).
 

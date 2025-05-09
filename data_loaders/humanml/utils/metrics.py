@@ -202,21 +202,21 @@ def calculate_trajectory_diversity(trajectories, lengths):
     return np.array(div).mean()
 
 def calculate_skating_ratio(motions):
-    thresh_height = 0.05 # 10
+    """ Computes the foot skating ratio as described in the paper on page 6. """
+    thresh_height = 0.05 # 5 cm above ground
     fps = 20.0
-    thresh_vel = 0.50 # 20 cm /s 
+    thresh_vel = 0.50 # 20 cm /s # 2.5cm
     avg_window = 5 # frames
 
     batch_size = motions.shape[0]
     # 10 left, 11 right foot. XZ plane, y up
-    # motions [bs, 22, 3, max_len]
+    # shape of motions: [bs, 22, 3, max_len]
     verts_feet = motions[:, [10, 11], :, :].detach().cpu().numpy()  # [bs, 2, 3, max_len]
     verts_feet_plane_vel = np.linalg.norm(verts_feet[:, :, [0, 2], 1:] - verts_feet[:, :, [0, 2], :-1],  axis=2) * fps  # [bs, 2, max_len-1]
-    # [bs, 2, max_len-1]
-    vel_avg = uniform_filter1d(verts_feet_plane_vel, axis=-1, size=avg_window, mode='constant', origin=0)
+    vel_avg = uniform_filter1d(verts_feet_plane_vel, axis=-1, size=avg_window, mode='constant', origin=0) # [bs, 2, max_len-1]
 
     verts_feet_height = verts_feet[:, :, 1, :]  # [bs, 2, max_len]
-    # If feet touch ground in agjecent frames
+    # If feet touch ground in adjacent frames
     feet_contact = np.logical_and((verts_feet_height[:, :, :-1] < thresh_height), (verts_feet_height[:, :, 1:] < thresh_height))  # [bs, 2, max_len - 1]
     # skate velocity
     skate_vel = feet_contact * vel_avg
