@@ -94,7 +94,7 @@ def main(config_file: str):
         model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf
     )
     #######################################
-    out = noise_opt("LBFGS")
+    out = noise_opt("Adam")
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(args, data, gen_sample,
                                                                                    inter_out, model, model_kwargs,
@@ -115,7 +115,7 @@ def load_args():
 
     args.num_trials = 3
     args.num_ode_steps = 10
-    args.num_opt_steps =  800
+    args.num_opt_steps = 800
     args.gradient_checkpoint = False
     args.task = "trajectory_editing"
 
