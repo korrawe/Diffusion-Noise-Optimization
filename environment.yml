@@ -10,20 +10,20 @@ dependencies:
   - conda-forge:
       - ffmpeg
   - pip:
+    # Regular pip dependencies
     - blobfile
     - chumpy==0.70
     - einops
+    - ftfy
     - h5py
     - matplotlib>=3.1.3
     - natsort
     - numpy>=1.22
     - omegaconf
     - pillow>=9.2.0
-    - torch==1.13.1+cu117
-    - torchvision==0.14.1+cu117
-    - torchaudio==0.13.1
     - pytorch-lightning>=1.9
     - PyYaml
+    - regex
     - scikit-learn>=1.0.2
     - scipy>=1.7.3
     - seaborn
@@ -31,9 +31,15 @@ dependencies:
     - smplx==0.1.28
     - spacy>=3.3.1
     - tensorboard
+    - torch==1.13.1+cu117
     - torchaudio
+    - torchaudio==0.13.1
     - torchmetrics>0.11
     - torchvision
+    - torchvision==0.14.1+cu117
     - tqdm
     - trimesh
+    # Git pip dependencies
+    - git+https://github.com/openai/CLIP.git
+    # Extra index URLs
     - --extra-index-url https://download.pytorch.org/whl/cu117
