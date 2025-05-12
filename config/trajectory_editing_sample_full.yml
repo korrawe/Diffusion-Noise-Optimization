@@ -1,0 +1,38 @@
+task: trajectory_editing
+num_ode_steps: 10
+num_optimization_steps: 800
+gradient_checkpoint: False
+use_cuda: True
+device: 0
+seed: 20
+batch_size: 64
+sampling:
+  model_path: save/mdm_avg_dno/model000500000_avg.pt
+  output_dir: ''
+  num_samples: 10
+  num_repetitions: 3
+  guidance_param: 2.5
+generate:
+  motion_length: 6.0 # in seconds
+  input_text: "a person is jumping"
+  action_file: '' # warm_up, walk, run, jump, drink, lift_dumbbell, sit, eat, turn steering wheel, phone, boxing, throw
+  text_prompt: ''
+  action_name: ''
+  load_from: ''
+data:
+  dataset: humanml # humanml, kit humanact12, usetc
+  data_dir: ''
+diffusion:
+  noise_schedule: cosine # linear
+  diffusion_steps: 1000
+  sigma_small: True
+model:
+  arch: trans_enc # trans_dec, gru
+  emb_trans_dec: False # only for trans_dec: if true, inject condition as class token
+  num_layers: 8
+  latent_dim: 512
+  cond_mask_prob: 1
+  lambda_rcxyz: 0.0
+  lambda_vel: 0.0
+  lambda_fc: 0.0
+  unconstrained: False

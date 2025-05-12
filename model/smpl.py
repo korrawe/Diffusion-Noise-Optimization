@@ -6,7 +6,7 @@ import contextlib
 
 from smplx import SMPLLayer as _SMPLLayer
 from smplx.lbs import vertices2joints
-
+from smplx.utils import Struct
 
 # action2motion_joints = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 21, 24, 38]
 # change 0 and 8
@@ -66,6 +66,8 @@ class SMPL(_SMPLLayer):
 
     def __init__(self, model_path=SMPL_MODEL_PATH, **kwargs):
         kwargs["model_path"] = model_path
+        data_struct = Struct(**np.load(model_path, allow_pickle=True))
+        kwargs["data_struct"] = data_struct
 
         # remove the verbosity for the 10-shapes beta parameters
         with contextlib.redirect_stdout(None):
