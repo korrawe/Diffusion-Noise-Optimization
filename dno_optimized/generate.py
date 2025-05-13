@@ -1,33 +1,51 @@
+import os
+from argparse import ArgumentParser
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 from omegaconf import OmegaConf
 
-import json
-import shutil
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import numpy as np
-
+from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
-from .noise_optimizer import DNO, DNOOptions
+from data_loaders.tensors import collate
 from model.cfg_sampler import ClassifierFreeSampleModel
+from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
 from sample.gen_dno import load_dataset, ddim_invert, ddim_loop_with_gradient
+from utils import dist_util
 from utils.dist_util import setup_dist
 from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
 from utils.output_util import sample_to_motion, save_multiple_samples, construct_template_variables
-from utils.parser_util import generate_args
-from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
-from os import path, makedirs
-import torch
-from utils import dist_util
-from data_loaders.tensors import collate
-from sample import dno_helper
-from pprint import pprint
+from .noise_optimizer import DNO, DNOOptions
 
-def main(config_file: str):
-    legacy_args = OmegaConf.create(vars(load_args()))
-    new_config = OmegaConf.load(config_file)
-    args = OmegaConf.merge(legacy_args, new_config)
+
+def main(config_file: str, dot_list=None):
+    if dot_list is None:
+        dot_list = []
+    base_args = OmegaConf.load(Path(__file__).parent / "base_config.yml")
+    user_args = OmegaConf.load(config_file)
+    cli_args = OmegaConf.from_cli(dot_list)
+    args = OmegaConf.merge(base_args, user_args, cli_args)
+
+    assert args.text_prompt != "", "Please specify text_prompt"
+
+    args.niter = os.path.basename(args.model_path).replace("model", "").replace(".pt", "")
+    args.n_frames = min(args.max_frames, int(args.motion_length * args.fps))
+    args.gen_frames = int(6.0 * args.fps)
+    args.batch_size = args.num_samples
+    assert args.gen_frames <= args.n_frames, "gen_frames must be less than n_frames"
+
+    fixseed(args.seed)
+    setup_dist(args.device)
+    args.out_path = Path(args.model_path).parent / "samples_{}_seed{}_{}".format(
+        args.niter,
+        args.seed,
+        args.text_prompt.replace(" ", "_").replace(".", "")
+    ) / "{}_{}".format(args.task, datetime.now().strftime("%y%m%d-%H%M%S"))
 
     data, diffusion, model, model_device, model_kwargs, target = prepare_dataset_and_model(
         args)
@@ -94,7 +112,7 @@ def main(config_file: str):
         model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf
     )
     #######################################
-    out = noise_opt("Adam")
+    out = noise_opt(args.optimizer)
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(args, data, gen_sample,
                                                                                    inter_out, model, model_kwargs,
@@ -107,53 +125,7 @@ def main(config_file: str):
     # end for rep_i in range(args.num_repetitions):
 
     save_videos(all_lengths, all_motions, all_text, args, captions, kframes, num_dump_step, obs_list,
-                  show_target_pose, target)
-
-
-def load_args():
-    args = generate_args()
-
-    args.num_trials = 3
-    args.num_ode_steps = 10
-    args.num_opt_steps = 800
-    args.gradient_checkpoint = False
-    args.task = "trajectory_editing"
-
-    args.device = 0
-    args.use_ddim = True
-    fixseed(args.seed)
-
-    args.out_path = args.output_dir
-    args.niter = path.basename(args.model_path).replace("model", "").replace(".pt", "")
-
-    args.max_frames = 196
-    args.fps = 20
-    args.n_frames = min(args.max_frames, int(args.motion_length * args.fps))
-    args.gen_frames = int(6.0 * args.fps)
-    assert args.gen_frames <= args.n_frames, "gen_frames must be less than n_frames"
-    args.skeleton = t2m_kinematic_chain
-
-    setup_dist(args.device)
-    # Output directory
-    if args.out_path == "":
-        args.out_path = path.join(
-            path.dirname(args.model_path),
-            "samples_{}_seed{}".format(args.niter, args.seed),
-        )
-        if args.text_prompt != "":
-            args.out_path += "_" + args.text_prompt.replace(" ", "_").replace(".", "")
-
-    args.out_path = path.join(args.out_path, args.task + "_dno")
-    args.output_dir = args.out_path
-
-    # This block must be called BEFORE the dataset is loaded
-    assert args.text_prompt != "", "Please specify text_prompt"
-
-    args.num_samples = 1
-    args.num_repetitions = 1
-    args.batch_size = args.num_samples
-
-    return args
+                show_target_pose, target)
 
 
 def prepare_dataset_and_model(args):
@@ -205,13 +177,10 @@ def prepare_dataset_and_model(args):
     ############################################
 
     # Output path
-    if path.exists(args.out_path):
-        shutil.rmtree(args.out_path)
-    makedirs(args.out_path)
-    args_path = path.join(args.out_path, "args.yml")
-    OmegaConf.save(config=args, f=args_path)
-    # with open(args_path, "w") as fw:
-        # json.dump(vars(args), fw, indent=4, sort_keys=True)
+    if args.out_path.exists():
+        raise FileExistsError(args.out_path)
+    args.out_path.mkdir(parents=True, exist_ok=True)
+    OmegaConf.save(config=args, f=args.out_path / "args.yml")
     ############################################
 
     return data, diffusion, model, model_device, model_kwargs, target
@@ -234,7 +203,7 @@ def prepare_optimization(args, data, diffusion, kframes, model, model_device, mo
     else:
         # Load from file
         idx_to_load = 0
-        load_from_x = path.join(args.load_from, "optimized_x.pt")
+        load_from_x = os.path.join(args.load_from, "optimized_x.pt")
         sample = torch.load(load_from_x)[None, idx_to_load].clone()
 
     ########################
@@ -257,7 +226,7 @@ def prepare_optimization(args, data, diffusion, kframes, model, model_device, mo
 
     task_info = {
         "task": args.task,
-        "skeleton": args.skeleton,
+        "skeleton": t2m_kinematic_chain,
         "initial_motion": initial_motion,
         "initial_text": initial_text,
         "device": model_device,
@@ -417,7 +386,7 @@ def process_results(args, data, gen_sample, inter_out, model, model_kwargs, out,
             else:
                 plt.plot(hist["step"], hist[key])
             plt.legend([key])
-            plt.savefig(path.join(args.out_path, f"trial_{i}_{key}.png"))
+            plt.savefig(os.path.join(args.out_path, f"trial_{i}_{key}.png"))
             plt.close()
 
     final_out = out["x"].detach().clone()
@@ -439,8 +408,8 @@ def process_results(args, data, gen_sample, inter_out, model, model_kwargs, out,
                    ] + [f"Prediction {i + 1}" for i in range(args.num_trials)]
         args.num_samples = 1 + args.num_trials
 
-    torch.save(out["z"], path.join(args.out_path, "optimized_z.pt"))
-    torch.save(out["x"], path.join(args.out_path, "optimized_x.pt"))
+    torch.save(out["z"], os.path.join(args.out_path, "optimized_z.pt"))
+    torch.save(out["x"], os.path.join(args.out_path, "optimized_x.pt"))
 
     ###################
     num_dump_step = 1
@@ -477,8 +446,9 @@ def process_results(args, data, gen_sample, inter_out, model, model_kwargs, out,
 
     return captions, cur_lengths, cur_motions, cur_texts, num_dump_step
 
+
 def save_videos(all_lengths, all_motions, all_text, args, captions, kframes, num_dump_step, obs_list,
-                  show_target_pose, target):
+                show_target_pose, target):
     total_num_samples = args.num_samples * args.num_repetitions * num_dump_step
 
     # After concat -> [r1_dstep_1, r2_dstep_1, r3_dstep_1, r1_dstep_2, r2_dstep_2, ....]
@@ -489,7 +459,7 @@ def save_videos(all_lengths, all_motions, all_text, args, captions, kframes, num
     all_text = all_text[:total_num_samples]  # len() = args.num_samples * num_dump_step
     all_lengths = np.concatenate(all_lengths, axis=0)[:total_num_samples]
 
-    npy_path = path.join(args.out_path, "results.npy")
+    npy_path = os.path.join(args.out_path, "results.npy")
 
     print(f"saving results file to [{npy_path}]")
     np.save(
@@ -532,10 +502,10 @@ def save_videos(all_lengths, all_motions, all_text, args, captions, kframes, num
         print(
             sample_print_template.format(caption, 0, sample_i, save_file)
         )
-        animation_save_path = path.join(args.out_path, save_file)
+        animation_save_path = os.path.join(args.out_path, save_file)
         plot_3d_motion(
             animation_save_path,
-            args.skeleton,
+            t2m_kinematic_chain,
             motion,
             dataset=args.dataset,
             title=captions[sample_i],
@@ -562,9 +532,14 @@ def save_videos(all_lengths, all_motions, all_text, args, captions, kframes, num
             sample_i,
         )
 
-    abs_path = path.abspath(args.out_path)
+    abs_path = os.path.abspath(args.out_path)
     print(f"[Done] Results are at [{abs_path}]")
 
 
 if __name__ == "__main__":
-    main("config/trajectory_editing_simple.yml")
+    parser = ArgumentParser(prog="python -m dno_optimized.generate",
+                            description="Edit a new motion that was generated by a text-to-motion model.")
+    parser.add_argument("config_file", type=str, help="Path to a YML config file.")
+    parser.add_argument("dotlist", nargs="*", help="A dotlist of arguments parsed by omegaconf.")
+    args = parser.parse_args()
+    main(args.config_file, args.dotlist)
