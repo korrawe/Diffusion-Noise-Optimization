@@ -2,8 +2,11 @@ import argparse
 import pickle
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import scipy
+import scipy.sparse
 
 # Patch old numpy
 np.bool = np.bool_
@@ -15,9 +18,16 @@ np.unicode = np.unicode_
 np.str = np.str_
 
 
+def convert_types(key: str, value: Any):
+    if isinstance(value, (scipy.sparse.csc_matrix, scipy.sparse.csc.csc_matrix)):
+        return value.toarray()
+    return value
+
+
 def convert(input_path: Path, output_path: Path):
     with input_path.open("rb") as f:
         data = pickle.load(f, encoding="latin1")
+    data = {k: convert_types(k, v) for k, v in data.items()}
     np.savez(output_path, **data)
     return data
 
