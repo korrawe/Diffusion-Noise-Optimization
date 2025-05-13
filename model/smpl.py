@@ -1,17 +1,17 @@
 # This code is based on https://github.com/Mathux/ACTOR.git
-import numpy as np
-import torch
-
 import contextlib
 
+import numpy as np
+import torch
 from smplx import SMPLLayer as _SMPLLayer
 from smplx.lbs import vertices2joints
+from smplx.utils import Struct
 
 # action2motion_joints = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 21, 24, 38]
 # change 0 and 8
 action2motion_joints = [8, 1, 2, 3, 4, 5, 6, 7, 0, 9, 10, 11, 12, 13, 14, 21, 24, 38]
 
-from utils.config import SMPL_MODEL_PATH, JOINT_REGRESSOR_TRAIN_EXTRA
+from utils.config import JOINT_REGRESSOR_TRAIN_EXTRA, SMPL_MODEL_PATH
 
 JOINTSTYPE_ROOT = {"a2m": 0, # action2motion
                    "smpl": 0,
@@ -64,9 +64,13 @@ class SMPL(_SMPLLayer):
     """ Extension of the official SMPL implementation to support more joints """
 
     def __init__(self, model_path=SMPL_MODEL_PATH, **kwargs):
-        kwargs["model_path"] = model_path
-        # data_struct = Struct(**np.load(model_path, allow_pickle=True))
-        # kwargs["data_struct"] = data_struct
+        if model_path.endswith('.pkl'):
+            kwargs["model_path"] = model_path
+        else:
+            body_model = np.load(model_path, allow_pickle=True)
+            data_struct = Struct(**body_model)
+            kwargs['model_path'] = ''
+            kwargs['data_struct'] = data_struct
 
         # remove the verbosity for the 10-shapes beta parameters
         with contextlib.redirect_stdout(None):

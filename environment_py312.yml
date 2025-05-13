@@ -1,4 +1,4 @@
-name: dno-env
+name: dno-env-py312
 channels:
   - pytorch
   - nvidia
