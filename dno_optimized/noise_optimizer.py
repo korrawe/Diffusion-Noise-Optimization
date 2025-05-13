@@ -1,7 +1,15 @@
 import math
+from dataclasses import dataclass, field
+
 import torch
 from tqdm import tqdm
-from dataclasses import dataclass, field
+
+from utils.optim_util import OptimizerType, create_optimizer
+
+
+@dataclass
+class LBFGSOptions:
+    history_size: int = field(default=10, metadata={"help": "Update history size"})
 
 
 @dataclass
@@ -39,6 +47,9 @@ class DNOOptions:
         },
     )
 
+    # Custom optimizer options
+    lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
+
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
         if self.lr_decay_steps is None:
@@ -56,6 +67,7 @@ class DNO:
         model,
         criterion,
         start_z,
+        optimizer: OptimizerType,
         conf: DNOOptions,
     ):
         self.model = model
@@ -68,7 +80,7 @@ class DNO:
         # excluding the first dimension (batch size)
         self.dims = list(range(1, len(self.start_z.shape)))
 
-        # self.optimizer = torch.optim.Adam([self.current_z], lr=conf.lr)
+        self.optimizer = create_optimizer(optimizer, [self.current_z], self.conf)
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
@@ -82,6 +94,11 @@ class DNO:
         )
 
         self.step_count = 0
+
+        # Optimizer closure running variables
+        self.last_x: torch.Tensor | None = None
+        self.lr_frac: float | None = None
+
         # history of the optimization (for each step and each instance in the batch)
         # hist = {
         #    "step": [step] * batch_size,
@@ -90,129 +107,51 @@ class DNO:
         # }
         self.hist = []
         self.info = {}
-        self.optimizer = None
 
-    def __call__(self, optimizer, num_steps: int = None):
+        print(f"Initialized DNO with {optimizer} optimizer")
+
+    def __call__(self, num_steps: int = None):
+        return self.optimize(num_steps=num_steps)
+    
+
+    def optimize(self, num_steps: int | None = None):
         if num_steps is None:
             num_steps = self.conf.num_opt_steps
-
+        
         batch_size = self.start_z.shape[0]
-        
-        print("optimizer is ", optimizer)
-        
-        if optimizer == "Adam":
-            self.optimizer = "Adam"
-            return  self.training_with_Adam(num_steps, batch_size)
+
+        for i in (pb := tqdm(range(num_steps))):
+            def closure():
+                # Reset gradients
+                self.optimizer.zero_grad()
+                # Single step forward and backward
+                self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
+                return loss
             
-        elif optimizer == "LBFGS":
-            return self.training_with_LBFGS(num_steps, batch_size)
-            
-        elif optimizer == "SGD":
-            return  self.training_with_SGD(num_steps, batch_size)
-        
-        elif optimizer == "Gauss_Newton":
-            return self.training_with_GaussNewton()
-            
-        elif optimizer == "LevenbergMarquardt":
-            return self.training_with_LevenbergMarquardt()
-        
-        raise NotImplementedError(f"Unknown optimizer {optimizer}")
+            # Perform optimization round
+            self.optimizer.step(closure)
+            # Add noise after optimization step
+            self.noise_perturbation(self.lr_frac, batch_size=batch_size)
+            # Logging
+            self.log_data(self.last_x)
+            pb.set_postfix({"loss": self.info["loss"].mean().item()})
+
+        hist = self.compute_hist(batch_size=batch_size)
+
+        return {
+            # last step's z
+            "z": self.current_z.detach(),
+            # previous step's x
+            "x": self.last_x.detach(),
+            "hist": hist,
+        }
 
 
     def set_lr(self, lr):
         for i, param_group in enumerate(self.optimizer.param_groups):
             param_group["lr"] = lr
-            
-    def training_with_Adam(self, num_steps, batch_size):
-        self.optimizer = torch.optim.Adam([self.current_z], lr=self.conf.lr)
-        
-        with tqdm(range(num_steps)) as prog:
-            for i in prog:
-                
-                self.optimizer.zero_grad()
-                
-                x,lr_frac, _ = self.compute_loss(batch_size)
-                
-                self.optimizer.step()
-                
-                self.noise_perturbation(lr_frac, batch_size)
-                
-                self.log_data(x)
-               
-                prog.set_postfix({"loss": self.info["loss"].mean().item()})
 
-        hist = self.compute_hist(batch_size)
-      
-        return {
-            # last step's z
-            "z": self.current_z.detach(),
-            # previous steps' x
-            "x": x.detach(),
-            "hist": hist,
-        }
-    
-    def training_with_SGD(self, num_steps, batch_size):
-        self.optimizer = torch.optim.SGD([self.current_z], lr=self.conf.lr)
-        
-        with tqdm(range(num_steps)) as prog:
-            for i in prog:
-                
-                self.optimizer.zero_grad()
-                
-                x,lr_frac, _ = self.compute_loss(batch_size)
-                
-                self.optimizer.step()
-                
-                self.noise_perturbation(lr_frac, batch_size)
-                
-                self.log_data(x)
-               
-                prog.set_postfix({"loss": self.info["loss"].mean().item()})
 
-        hist = self.compute_hist(batch_size)
-      
-        return {
-            # last step's z
-            "z": self.current_z.detach(),
-            # previous steps' x
-            "x": x.detach(),
-            "hist": hist,
-        }
-        
-    def training_with_LBFGS(self, num_steps, batch_size):
-        self.optimizer = torch.optim.LBFGS([self.current_z], history_size = 10, lr=self.conf.lr)
-        
-        with tqdm(range(num_steps)) as prog:
-            for i in prog:
-                
-                
-                def closure():
-                    self.optimizer.zero_grad()
-                
-                    _,_, loss = self.compute_loss(batch_size)
-                    
-                    return loss
-                
-                self.optimizer.step(closure)
-                
-                x, lr_frac, _ = self.compute_loss(batch_size)
-                
-                self.noise_perturbation(lr_frac, batch_size)
-                
-                self.log_data(x)
-               
-                prog.set_postfix({"loss": self.info["loss"].mean().item()})
-
-        hist = self.compute_hist(batch_size)
-      
-        return {
-            # last step's z
-            "z": self.current_z.detach(),
-            # previous steps' x
-            "x": x.detach(),
-            "hist": hist,
-        }
-    
     def compute_loss(self, batch_size):
         self.info = {"step": [self.step_count] * batch_size}
 

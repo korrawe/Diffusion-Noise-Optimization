@@ -1,7 +1,8 @@
 import math
+from dataclasses import dataclass, field
+
 import torch
 from tqdm import tqdm
-from dataclasses import dataclass, field
 
 
 @dataclass

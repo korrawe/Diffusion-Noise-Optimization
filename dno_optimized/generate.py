@@ -14,12 +14,13 @@ from data_loaders.tensors import collate
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
-from sample.gen_dno import load_dataset, ddim_invert, ddim_loop_with_gradient
+from sample.gen_dno import ddim_invert, ddim_loop_with_gradient, load_dataset
 from utils import dist_util
 from utils.dist_util import setup_dist
 from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
-from utils.output_util import sample_to_motion, save_multiple_samples, construct_template_variables
+from utils.output_util import construct_template_variables, sample_to_motion, save_multiple_samples
+
 from .noise_optimizer import DNO, DNOOptions
 
 
@@ -109,10 +110,10 @@ def main(config_file: str, dot_list=None):
 
     ######## Main optimization loop #######
     noise_opt = DNO(
-        model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf
+        model=solver, criterion=criterion, start_z=cur_xt, optimizer=args.optimizer, conf=noise_opt_conf
     )
     #######################################
-    out = noise_opt(args.optimizer)
+    out = noise_opt()
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(args, data, gen_sample,
                                                                                    inter_out, model, model_kwargs,
@@ -286,6 +287,7 @@ def prepare_optimization(args, data, diffusion, kframes, model, model_device, mo
     noise_opt_conf = DNOOptions(
         num_opt_steps=args.num_opt_steps,  # 300 if is_editing_task else 500,
         diff_penalty_scale=2e-3 if is_editing_task else 0,
+        lbfgs=args.lbfgs.history_size
     )
     start_from_noise = is_noise_init
 

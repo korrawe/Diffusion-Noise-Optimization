@@ -51,3 +51,7 @@ guidance_param: 2.5
 #gen_frames: 120
 #niter: 000500000_avg
 #n_frames: 120
+
+## OPTIMIZERS
+lbfgs:
+  history_size: 10
