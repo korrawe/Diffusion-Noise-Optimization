@@ -110,7 +110,8 @@ class MDM(nn.Module):
                 dim_feedforward=self.ff_size,
                 dropout=self.dropout,
                 activation=self.activation,
-                batch_first=True)
+                # batch_first=True
+            )
             self.seqTransEncoder = nn.TransformerEncoder(
                 seqTransEncoderLayer, num_layers=self.num_layers)
         elif self.arch.startswith('trans_dec'):
