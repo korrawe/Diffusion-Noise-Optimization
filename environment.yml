@@ -12,7 +12,6 @@ dependencies:
   - pip:
     # Regular pip dependencies
     - blobfile
-    - chumpy==0.70
     - einops
     - ftfy
     - gdown
@@ -42,5 +41,6 @@ dependencies:
     - trimesh
     # Git pip dependencies
     - git+https://github.com/openai/CLIP.git
+    - git+https://github.com/mattloper/chumpy.git  # Latest git version removes deprecated numpy imports
     # Extra index URLs
     - --extra-index-url https://download.pytorch.org/whl/cu117
