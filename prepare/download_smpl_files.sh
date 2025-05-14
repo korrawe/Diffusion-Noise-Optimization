@@ -6,6 +6,8 @@ gdown "https://drive.google.com/uc?id=1INYlGA76ak_cKGzvpOV2Pe6RkYTlXTW2"
 rm -rf smpl
 
 unzip smpl.zip
+# Download additional NPZ converted body model
+wget -O smpl/SMPL_NEUTRAL.npz https://polybox.ethz.ch/index.php/s/cjLQ8dRwTFoQZAG/download/SMPL_NEUTRAL.npz
 echo -e "Cleaning\n"
 rm smpl.zip
 
