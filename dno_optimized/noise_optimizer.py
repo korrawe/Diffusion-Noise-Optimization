@@ -1,10 +1,10 @@
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
+from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
-
-from utils.optim_util import OptimizerType, create_optimizer
 
 
 @dataclass
@@ -54,6 +54,26 @@ class DNOOptions:
         # if lr_decay_steps is not set, then set it to num_opt_steps
         if self.lr_decay_steps is None:
             self.lr_decay_steps = self.num_opt_steps
+
+
+OptimizerType = Literal["Adam", "LBFGS", "SGD", "GaussNewton", "LevenbergMarquardt"]
+
+
+def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
+    print("Config:", config)
+    match optimizer:
+        case "Adam":
+            return torch.optim.Adam(params, lr=config.lr)
+        case "LBFGS":
+            return torch.optim.LBFGS(params, lr=config.lr, history_size=config.lbfgs.history_size)
+        case "SGD":
+            return torch.optim.SGD(params, lr=config.lr)
+        case "GaussNewton":
+            raise NotImplementedError(optimizer)
+        case "LevenbergMarquardt":
+            raise NotImplementedError(optimizer)
+        case _:
+            raise ValueError(f"`{optimizer}` is not a valid optimizer")
 
 
 class DNO:

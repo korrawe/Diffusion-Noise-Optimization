@@ -21,7 +21,7 @@ from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
 from utils.output_util import construct_template_variables, sample_to_motion, save_multiple_samples
 
-from .noise_optimizer import DNO, DNOOptions
+from .noise_optimizer import DNO, DNOOptions, LBFGSOptions
 
 
 def main(config_file: str, dot_list=None):
@@ -287,7 +287,7 @@ def prepare_optimization(args, data, diffusion, kframes, model, model_device, mo
     noise_opt_conf = DNOOptions(
         num_opt_steps=args.num_opt_steps,  # 300 if is_editing_task else 500,
         diff_penalty_scale=2e-3 if is_editing_task else 0,
-        lbfgs=args.lbfgs.history_size
+        lbfgs=LBFGSOptions(history_size=args.lbfgs.history_size)
     )
     start_from_noise = is_noise_init
 
