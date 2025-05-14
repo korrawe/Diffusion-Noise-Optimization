@@ -21,30 +21,20 @@ class DNOOptions:
         },
     )
     lr: float = field(default=5e-2, metadata={"help": "Learning rate"})
-    perturb_scale: float = field(
-        default=0, metadata={"help": "scale of the noise perturbation"}
-    )
+    perturb_scale: float = field(default=0, metadata={"help": "scale of the noise perturbation"})
     diff_penalty_scale: float = field(
         default=0,
-        metadata={
-            "help": "penalty for the difference between the final z and the initial z"
-        },
+        metadata={"help": "penalty for the difference between the final z and the initial z"},
     )
-    lr_warm_up_steps: int = field(
-        default=50, metadata={"help": "Number of warm-up steps for the learning rate"}
-    )
+    lr_warm_up_steps: int = field(default=50, metadata={"help": "Number of warm-up steps for the learning rate"})
     lr_decay_steps: int = field(
         default=None,
         metadata={"help": "Number of decay steps (if None, then set to num_opt_steps)"},
     )
-    decorrelate_scale: float = field(
-        default=1000, metadata={"help": "penalty for the decorrelation of the noise"}
-    )
+    decorrelate_scale: float = field(default=1000, metadata={"help": "penalty for the decorrelation of the noise"})
     decorrelate_dim: int = field(
         default=3,
-        metadata={
-            "help": "dimension to decorrelate (we usually decorrelate time dimension)"
-        },
+        metadata={"help": "dimension to decorrelate (we usually decorrelate time dimension)"},
     )
 
     # Custom optimizer options
@@ -104,13 +94,9 @@ class DNO:
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
-            self.lr_scheduler.append(
-                lambda step: warmup_scheduler(step, conf.lr_warm_up_steps)
-            )
+            self.lr_scheduler.append(lambda step: warmup_scheduler(step, conf.lr_warm_up_steps))
         self.lr_scheduler.append(
-            lambda step: cosine_decay_scheduler(
-                step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False
-            )
+            lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
         )
 
         self.step_count = 0
@@ -132,22 +118,22 @@ class DNO:
 
     def __call__(self, num_steps: int = None):
         return self.optimize(num_steps=num_steps)
-    
 
     def optimize(self, num_steps: int | None = None):
         if num_steps is None:
             num_steps = self.conf.num_opt_steps
-        
+
         batch_size = self.start_z.shape[0]
 
         for i in (pb := tqdm(range(num_steps))):
+
             def closure():
                 # Reset gradients
                 self.optimizer.zero_grad()
                 # Single step forward and backward
                 self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
                 return loss
-            
+
             # Perform optimization round
             self.optimizer.step(closure)
             # Add noise after optimization step
@@ -166,11 +152,9 @@ class DNO:
             "hist": hist,
         }
 
-
     def set_lr(self, lr):
         for i, param_group in enumerate(self.optimizer.param_groups):
             param_group["lr"] = lr
-
 
     def compute_loss(self, batch_size):
         self.info = {"step": [self.step_count] * batch_size}
@@ -212,41 +196,30 @@ class DNO:
             self.info["loss_decorrelate"] = loss_decorrelate.detach().cpu()
         else:
             self.info["loss_decorrelate"] = [0] * batch_size
-            
+
         # backward
         loss.backward()
 
         # log grad norm (before)
-        self.info["grad_norm"] = (
-            self.current_z.grad.norm(p=2, dim=self.dims).detach().cpu()
-        )
+        self.info["grad_norm"] = self.current_z.grad.norm(p=2, dim=self.dims).detach().cpu()
 
         # grad mode
-        self.current_z.grad.data /= self.current_z.grad.norm(
-            p=2, dim=self.dims, keepdim=True
-        )
-            
+        self.current_z.grad.data /= self.current_z.grad.norm(p=2, dim=self.dims, keepdim=True)
+
         return x, lr_frac, loss
-    
+
     def noise_perturbation(self, lr_frac, batch_size):
         # noise perturbation
         # match the noise fraction to the learning rate fraction
         noise_frac = lr_frac
-        self.info["perturb_scale"] = [
-            self.conf.perturb_scale * noise_frac
-        ] * batch_size
+        self.info["perturb_scale"] = [self.conf.perturb_scale * noise_frac] * batch_size
 
         noise = torch.randn_like(self.current_z)
         self.current_z.data += noise * self.conf.perturb_scale * noise_frac
-        
+
     def log_data(self, x):
-         # log the norm(z - start_z)
-        self.info["diff_norm"] = (
-            (self.current_z - self.start_z)
-            .norm(p=2, dim=self.dims)
-            .detach()
-            .cpu()
-        )
+        # log the norm(z - start_z)
+        self.info["diff_norm"] = (self.current_z - self.start_z).norm(p=2, dim=self.dims).detach().cpu()
 
         # log current z
         self.info["z"] = self.current_z.detach().cpu()
@@ -254,7 +227,7 @@ class DNO:
 
         self.step_count += 1
         self.hist.append(self.info)
-        
+
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)
         hist = []
@@ -263,6 +236,7 @@ class DNO:
             for k in self.hist[0].keys():
                 hist[-1][k] = [info[k][i] for info in self.hist]
         return hist
+
 
 def warmup_scheduler(step, warmup_steps):
     if step < warmup_steps:
@@ -283,9 +257,7 @@ def cosine_decay_scheduler(step, decay_steps, total_steps, decay_first=True):
     else:
         if step < total_steps - decay_steps:
             return 1
-        return (
-            math.cos((step - (total_steps - decay_steps)) / decay_steps * math.pi) + 1
-        ) / 2
+        return (math.cos((step - (total_steps - decay_steps)) / decay_steps * math.pi) + 1) / 2
 
 
 def noise_regularize_1d(noise, stop_at=2, dim=3):
