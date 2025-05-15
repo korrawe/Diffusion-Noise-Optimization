@@ -55,3 +55,7 @@ guidance_param: 2.5
 ## OPTIMIZERS
 lbfgs:
   history_size: 10
+levenbergMarquardt:
+  attempts_per_step: 10
+  damping_fac: 1e-3
+lr: 5e-2

@@ -5,11 +5,28 @@ from typing import Literal
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
-
+from .levenberg_marquardt import LevenbergMarquardt
+from .gauss_newton import GaussNewton
 
 @dataclass
 class LBFGSOptions:
     history_size: int = field(default=10, metadata={"help": "Update history size"})
+
+
+@dataclass
+class LevenbergMarquardtOptions:
+    attempts_per_step: int = field(
+        default=10,
+        metadata={
+            "help": "Number of attempts per step (1 for editing, 2 for refinement, can go further for better results)"
+        },
+    )
+    damping_fac: float = field(
+        default=1e-3,
+        metadata={
+            "help": "Damping factor $\lambda$ in Levenberg Marquardt"
+        }
+    )
 
 
 @dataclass
@@ -39,6 +56,7 @@ class DNOOptions:
 
     # Custom optimizer options
     lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
+    levenbergMarquardt: LevenbergMarquardtOptions = field(default_factory=LevenbergMarquardtOptions, metadata={"help": "Options for Levenberg Marquardt optimizer"})
 
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
@@ -49,7 +67,7 @@ class DNOOptions:
 OptimizerType = Literal["Adam", "LBFGS", "SGD", "GaussNewton", "LevenbergMarquardt"]
 
 
-def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
+def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model, criterion) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
         case "Adam":
@@ -59,11 +77,28 @@ def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptio
         case "SGD":
             return torch.optim.SGD(params, lr=config.lr)
         case "GaussNewton":
-            raise NotImplementedError(optimizer)
+            return GaussNewton(params, lr=config.lr)
         case "LevenbergMarquardt":
-            raise NotImplementedError(optimizer)
+            # loss_fn = tlm.loss.LossWrapper(criterion)
+            # return tlm.training.LevenbergMarquardtModule(
+            #     model=Model(model, params),
+            #     loss_fn=loss_fn,
+            #     learning_rate=config.lr,
+            #     attempts_per_step=config.levenbergMarquardt.attempts_per_step,
+            #     solve_method='qr')
+            return LevenbergMarquardt(params, lr=config.lr, damping_fac=config.levenbergMarquardt.damping_fac, attempts_per_step=config.levenbergMarquardt.attempts_per_step)
         case _:
             raise ValueError(f"`{optimizer}` is not a valid optimizer")
+
+
+class Model(torch.nn.Module):
+    def __init__(self, model, params):
+        super().__init__()
+        self.model = model
+        self.params = params
+    
+    def forward(self, z):
+        return self.model(z)
 
 
 class DNO:
@@ -90,7 +125,7 @@ class DNO:
         # excluding the first dimension (batch size)
         self.dims = list(range(1, len(self.start_z.shape)))
 
-        self.optimizer = create_optimizer(optimizer, [self.current_z], self.conf)
+        self.optimizer = create_optimizer(optimizer, [self.current_z], self.conf, model, criterion)
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
@@ -126,7 +161,6 @@ class DNO:
         batch_size = self.start_z.shape[0]
 
         for i in (pb := tqdm(range(num_steps))):
-
             def closure():
                 # Reset gradients
                 self.optimizer.zero_grad()
@@ -136,6 +170,14 @@ class DNO:
 
             # Perform optimization round
             self.optimizer.step(closure)
+
+            # if isinstance(self.optimizer, torch.optim.Optimizer):
+            #     self.compute_torch_optimizer(batch_size=batch_size)
+            # elif isinstance(self.optimizer, tlm.training.LevenbergMarquardtModule):
+            #     self.compute_levenberg_marquardt_optimizer()
+            # else:
+            #     raise NotImplementedError(f"Optimizer {self.optimizer} not supported")
+
             # Add noise after optimization step
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
             # Logging
@@ -151,6 +193,22 @@ class DNO:
             "x": self.last_x.detach(),
             "hist": hist,
         }
+    
+    # def compute_torch_optimizer(self, batch_size):
+    #     def closure():
+    #         # Reset gradients
+    #         self.optimizer.zero_grad()
+    #         # Single step forward and backward
+    #         self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
+    #         return loss
+    #
+    #     # Perform optimization round
+    #     self.optimizer.step(closure)
+    #
+    # def compute_levenberg_marquardt_optimizer(self):
+    #     inputs = self.current_z
+    #     targets = self.criterion.target
+    #     self.optimizer.training_step(inputs, targets)
 
     def set_lr(self, lr):
         for i, param_group in enumerate(self.optimizer.param_groups):

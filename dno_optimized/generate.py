@@ -21,7 +21,7 @@ from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
 from utils.output_util import construct_template_variables, sample_to_motion, save_multiple_samples
 
-from .noise_optimizer import DNO, DNOOptions, LBFGSOptions
+from .noise_optimizer import DNO, DNOOptions, LBFGSOptions, LevenbergMarquardtOptions
 
 
 def main(config_file: str, dot_list=None):
@@ -45,7 +45,7 @@ def main(config_file: str, dot_list=None):
     args.out_path = (
         Path(args.model_path).parent
         / "samples_{}_seed{}_{}".format(args.niter, args.seed, args.text_prompt.replace(" ", "_").replace(".", ""))
-        / "{}_{}".format(args.task, datetime.now().strftime("%y%m%d-%H%M%S"))
+        / "{}_{}_{}".format(args.task, args.optimizer, datetime.now().strftime("%y%m%d-%H%M%S"))
     )
 
     data, diffusion, model, model_device, model_kwargs, target = prepare_dataset_and_model(args)
@@ -284,7 +284,12 @@ def prepare_optimization(
     noise_opt_conf = DNOOptions(
         num_opt_steps=args.num_opt_steps,  # 300 if is_editing_task else 500,
         diff_penalty_scale=2e-3 if is_editing_task else 0,
+        lr=args.lr,
         lbfgs=LBFGSOptions(history_size=args.lbfgs.history_size),
+        levenbergMarquardt=LevenbergMarquardtOptions(
+            attempts_per_step=args.levenbergMarquardt.attempts_per_step,
+            damping_fac=args.levenbergMarquardt.damping_fac,
+        )
     )
     start_from_noise = is_noise_init
 

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm import tqdm
+from pprint import pprint
 
 import data_loaders.humanml.utils.paramUtil as paramUtil
 from data_loaders.get_data import DatasetConfig, get_dataset_loader
@@ -560,7 +561,7 @@ def main(num_trials=3):
 
 
 def load_dataset(args, n_frames):
-    print(f"args: {args}")
+    pprint(f"args: {args}")
     conf = DatasetConfig(
         name=args.dataset,
         batch_size=args.batch_size,
