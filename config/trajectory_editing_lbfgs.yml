@@ -4,5 +4,10 @@ gradient_checkpoint: False
 dno:
   num_opt_steps: 100
   optimizer: LBFGS # Adam, SGD, LBFGS, LevenbergMarquardt, ...
+  lr: 1  # LBFGS needs much higher learning rate
+  lr_warm_up_steps: 3
   lbfgs:
     history_size: 100
+    line_search_fn: strong_wolfe # Or "strong_wolfe"
+logging:
+  tensorboard_enabled: true

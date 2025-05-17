@@ -3,6 +3,7 @@ Dataclass schemas for all DNO experiment options. To be used with OmegaConf.stru
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -51,9 +52,15 @@ class OptimizerType(str, Enum):
     LevenbergMarquardt = "LevenbergMarquardt"
 
 
+class LBFGSLineSearchFn(str, Enum):
+    strong_wolfe = "strong_wolfe"
+
+
 @dataclass
 class LBFGSOptions:
     history_size: int = field(default=10, metadata={"help": "Update history size"})
+    line_search_fn: LBFGSLineSearchFn | None = None
+    max_iter: int = 20
 
 
 @dataclass
@@ -92,13 +99,19 @@ class DNOOptions:
 
 
 @dataclass
+class LoggingOptions:
+    tensorboard_enabled: bool = False
+    tensorboard_logdir: str | None = None
+
+
+@dataclass
 class GenerateOptions:
-    ## COMPUTED (set in post-init)
-    niter: str = ""
-    n_frames: int = -1
-    gen_frames: int = -1
-    batch_size: int = -1
-    out_path: Path = Path("/tmp")
+    # ## COMPUTED (set in post-init)
+    # niter: str = ""
+    # n_frames: int = -1
+    # gen_frames: int = -1
+    # batch_size: int = -1
+    # out_path: Path = Path("/tmp")
 
     ## MISC
     num_dump_step: int = 1
@@ -141,6 +154,9 @@ class GenerateOptions:
     diffusion_steps: int = 1000
     sigma_small: bool = True
 
+    ## DNO TASK CONFIG
+    use_obstacles: bool = False
+
     ## EXPERIMENT
     num_trials: int = 3
     num_ode_steps: int = 10
@@ -155,15 +171,33 @@ class GenerateOptions:
 
     dno: DNOOptions = field(default_factory=DNOOptions)
 
-    def __post_init__(self):
-        self.niter = os.path.basename(self.model_path).replace("model", "").replace(".pt", "")
-        self.n_frames = min(self.max_frames, int(self.motion_length * self.fps))
-        self.gen_frames = int(self.motion_length * self.fps)  # NOTE: Was hard-coded to 6.0 before
-        self.batch_size = self.num_samples
+    logging: LoggingOptions = field(default_factory=LoggingOptions)
 
-        text_prompt_safe = self.text_prompt.replace(" ", "_").replace(".", "")
+    ## COMPUTED PROPERTIES
+    @property
+    def niter(self):
+        return re.match(r"model(.*)\.pt", os.path.basename(self.model_path)).group(1)  # type: ignore
+
+    @property
+    def n_frames(self):
+        return min(self.max_frames, int(self.motion_length * self.fps))
+
+    @property
+    def gen_frames(self):
+        # NOTE: Was hard-coded to 6.0 * fps before. Since motion_length is 6.0 by default, I assume that they should
+        # match.
+        return int(self.motion_length * self.fps)
+
+    @property
+    def batch_size(self):
+        return self.num_samples
+
+    @property
+    def out_path(self):
+        text_prompt_safe = re.sub(r"\s+", "_", self.text_prompt.strip())  # Trim and replace spaces by _
+        text_prompt_safe = re.sub(r"[^\w\d_]", "", text_prompt_safe)  # Remove any non-word characters
         timestamp = datetime.now().strftime("%y%m%d-%H%M%S")
-        self.out_path = (
+        return (
             Path(self.model_path).parent
             / f"samples_{self.niter}_seed{self.seed}_{text_prompt_safe}"
             / f"{self.task}_{timestamp}_{self.dno.optimizer.name}"

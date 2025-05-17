@@ -1,10 +1,14 @@
 import math
+from typing import TYPE_CHECKING
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
 
 from dno_optimized.options import DNOOptions, OptimizerType
+
+if TYPE_CHECKING:
+    from torch.utils.tensorboard.writer import SummaryWriter
 
 
 def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
@@ -13,7 +17,13 @@ def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptio
         case OptimizerType.Adam:
             return torch.optim.Adam(params, lr=config.lr)
         case OptimizerType.LBFGS:
-            return torch.optim.LBFGS(params, lr=config.lr, history_size=config.lbfgs.history_size)
+            return torch.optim.LBFGS(
+                params,
+                lr=config.lr,
+                line_search_fn=config.lbfgs.line_search_fn,
+                max_iter=config.lbfgs.max_iter,
+                history_size=config.lbfgs.history_size,
+            )
         case OptimizerType.SGD:
             return torch.optim.SGD(params, lr=config.lr)
         case OptimizerType.GaussNewton:
@@ -30,14 +40,7 @@ class DNO:
         start_z: (N, 263, 1, 120)
     """
 
-    def __init__(
-        self,
-        model,
-        criterion,
-        start_z,
-        conf: DNOOptions,
-    ):
-        print("DNO options:", conf)
+    def __init__(self, model, criterion, start_z, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
         self.model = model
         self.criterion = criterion
         # for diff penalty
@@ -53,6 +56,7 @@ class DNO:
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
             self.lr_scheduler.append(lambda step: warmup_scheduler(step, conf.lr_warm_up_steps))
+            print(f"Using linear learning rate warmup over {conf.lr_warm_up_steps} steps")
         self.lr_scheduler.append(
             lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
         )
@@ -71,6 +75,8 @@ class DNO:
         # }
         self.hist = []
         self.info = {}
+
+        self.tb_writer = tb_writer
 
         print(f"Initialized DNO with {self.conf.optimizer} optimizer")
 
@@ -98,6 +104,7 @@ class DNO:
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
             # Logging
             self.log_data(self.last_x)
+            self.log_tensorboard(self.last_x, batch_size)
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
         hist = self.compute_hist(batch_size=batch_size)
@@ -186,6 +193,22 @@ class DNO:
 
         self.step_count += 1
         self.hist.append(self.info)
+
+    def log_tensorboard(self, x, batch_size: int):
+        if self.tb_writer is None:
+            return
+        for key, value in self.info.items():
+            if isinstance(value, list):
+                if all(x == value[0] for x in value):
+                    # List of values, all same across batch
+                    value = value[0]
+                else:
+                    # Other metric (e.g. loss list for batch)
+                    value = sum(value) / len(value)
+            if isinstance(value, torch.Tensor):
+                value = torch.mean(value).detach().cpu().item()
+            batch_size = self.start_z.shape[0]
+            self.tb_writer.add_scalar(f"dno/{key}", value, global_step=self.step_count * batch_size)
 
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)
