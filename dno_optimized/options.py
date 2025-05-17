@@ -78,8 +78,8 @@ class DNOOptions:
         metadata={"help": "penalty for the difference between the final z and the initial z"},
     )
     lr_warm_up_steps: int = field(default=50, metadata={"help": "Number of warm-up steps for the learning rate"})
-    lr_decay_steps: int | None = field(
-        default=None,
+    lr_decay_steps: int = field(
+        default=-1,
         metadata={"help": "Number of decay steps (if None, then set to num_opt_steps)"},
     )
     decorrelate_scale: float = field(default=1000, metadata={"help": "penalty for the decorrelation of the noise"})
@@ -94,7 +94,7 @@ class DNOOptions:
 
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
-        if self.lr_decay_steps is None:
+        if self.lr_decay_steps == -1:
             self.lr_decay_steps = self.num_opt_steps
 
 

@@ -57,14 +57,17 @@ class DNO:
         self.dims = list(range(1, len(self.start_z.shape)))
 
         self.optimizer = create_optimizer(self.conf.optimizer, [self.current_z], self.conf)
+        print(f"INFO: Using {self.conf.optimizer.name} optimizer with LR of {self.conf.lr:.2g}")
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
             self.lr_scheduler.append(lambda step: warmup_scheduler(step, conf.lr_warm_up_steps))
-            print(f"Using linear learning rate warmup over {conf.lr_warm_up_steps} steps")
-        self.lr_scheduler.append(
-            lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
-        )
+            print(f"INFO: Using linear learning rate warmup over {conf.lr_warm_up_steps} steps")
+        if conf.lr_decay_steps > 0:
+            self.lr_scheduler.append(
+                lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
+            )
+            print(f"INFO: Using cosine learning rate decay over {conf.lr_decay_steps} steps")
 
         self.step_count = 0
 
@@ -82,8 +85,6 @@ class DNO:
         self.info = {}
 
         self.tb_writer = tb_writer
-
-        print(f"Initialized DNO with {self.conf.optimizer} optimizer")
 
     @property
     def batch_size(self):
@@ -219,23 +220,32 @@ class DNO:
                 return x.mean().detach().cpu().item()
             return x
 
+        # Used for ordering variables in TB
+        group_index = 0
         # Log all variables
         # Scalar value, or value broadcast to batch (e.g. learning rate)
         for var in self.TB_GLOBAL_VARS:
             scalar_value = convert_value(self.info[var])
-            self.tb_writer.add_scalar(f"dno/{var}", scalar_value, global_step=self.global_step)
+            self.tb_writer.add_scalar(f"{group_index:02d}_dno/{var}", scalar_value, global_step=self.global_step)
+        group_index += 1
 
         # Batched value (one per trial)
         for var in self.TB_GROUP_VARS:
             value = self.info[var]
             for trial, trial_value in enumerate(value):
                 trial_value = convert_value(trial_value)
-                self.tb_writer.add_scalar(f"{var}/trial_{trial}", trial_value, global_step=self.global_step)
+                self.tb_writer.add_scalar(
+                    f"{group_index:02d}_{var}/trial_{trial}", trial_value, global_step=self.global_step
+                )
+            group_index += 1
 
         # Log noise and output histograms
         for var in self.TB_HIST_VARS:
             for trial, trial_value in enumerate(self.info[var]):
-                self.tb_writer.add_histogram(f"hist_{var}/trial_{trial}", trial_value, global_step=self.global_step)
+                self.tb_writer.add_histogram(
+                    f"{group_index:02d}_hist_{var}/trial_{trial}", trial_value, global_step=self.global_step
+                )
+            group_index += 1
 
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)
