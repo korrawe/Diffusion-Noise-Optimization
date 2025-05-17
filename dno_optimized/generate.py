@@ -32,6 +32,10 @@ def main(config_file: str, dot_list=None):
     cli_args = OmegaConf.from_cli(dot_list)
     args = OmegaConf.merge(base_args, user_args, cli_args)
 
+    # Parse DNO options once to get optimizer
+    dno_options_schema = OmegaConf.structured(DNOOptions())
+    dno_options: DNOOptions = OmegaConf.merge(dno_options_schema, args.dno) # type: ignore
+
     assert args.text_prompt != "", "Please specify text_prompt"
 
     args.niter = os.path.basename(args.model_path).replace("model", "").replace(".pt", "")
@@ -45,7 +49,7 @@ def main(config_file: str, dot_list=None):
     args.out_path = (
         Path(args.model_path).parent
         / "samples_{}_seed{}_{}".format(args.niter, args.seed, args.text_prompt.replace(" ", "_").replace(".", ""))
-        / "{}_{}".format(args.task, datetime.now().strftime("%y%m%d-%H%M%S"))
+        / "{}_{}_{}".format(args.task, datetime.now().strftime("%y%m%d-%H%M%S"), dno_options.optimizer.name)
     )
 
     data, diffusion, model, model_device, model_kwargs, target = prepare_dataset_and_model(args)
@@ -283,7 +287,7 @@ def prepare_optimization(
     is_editing_task = not is_noise_init
     noise_opt_schema = OmegaConf.structured(DNOOptions())
     noise_opt_schema.diff_penalty_scale = 2e-3 if is_editing_task else 0
-    noise_opt_conf: DNOOptions = OmegaConf.merge(noise_opt_schema, args.dno) # type: ignore
+    noise_opt_conf: DNOOptions = OmegaConf.merge(noise_opt_schema, args.dno)  # type: ignore
     start_from_noise = is_noise_init
 
     if args.task == "motion_inbetweening":
