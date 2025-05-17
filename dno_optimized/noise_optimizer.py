@@ -1,58 +1,10 @@
 import math
-from dataclasses import dataclass, field
-from enum import Enum
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
 
-
-class OptimizerType(str, Enum):
-    Adam = "Adam"
-    LBFGS = "LBFGS"
-    SGD = "SGD"
-    GaussNewton = "GaussNewton"
-    LevenbergMarquardt = "LevenbergMarquardt"
-
-
-@dataclass
-class LBFGSOptions:
-    history_size: int = field(default=10, metadata={"help": "Update history size"})
-
-
-@dataclass
-class DNOOptions:
-    num_opt_steps: int = field(
-        default=500,
-        metadata={
-            "help": "Number of optimization steps (300 for editing, 500 for refinement, can go further for better results)"
-        },
-    )
-    lr: float = field(default=5e-2, metadata={"help": "Learning rate"})
-    perturb_scale: float = field(default=0, metadata={"help": "scale of the noise perturbation"})
-    diff_penalty_scale: float = field(
-        default=0,
-        metadata={"help": "penalty for the difference between the final z and the initial z"},
-    )
-    lr_warm_up_steps: int = field(default=50, metadata={"help": "Number of warm-up steps for the learning rate"})
-    lr_decay_steps: int | None = field(
-        default=None,
-        metadata={"help": "Number of decay steps (if None, then set to num_opt_steps)"},
-    )
-    decorrelate_scale: float = field(default=1000, metadata={"help": "penalty for the decorrelation of the noise"})
-    decorrelate_dim: int = field(
-        default=3,
-        metadata={"help": "dimension to decorrelate (we usually decorrelate time dimension)"},
-    )
-
-    # Custom optimizer options
-    optimizer: OptimizerType = field(default=OptimizerType.Adam, metadata={"help": "Optimizer to use for DNO."})
-    lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
-
-    def __post_init__(self):
-        # if lr_decay_steps is not set, then set it to num_opt_steps
-        if self.lr_decay_steps is None:
-            self.lr_decay_steps = self.num_opt_steps
+from dno_optimized.options import DNOOptions, OptimizerType
 
 
 def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:

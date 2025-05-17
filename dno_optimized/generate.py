@@ -1,7 +1,5 @@
 import os
 from argparse import ArgumentParser
-from datetime import datetime
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +9,7 @@ from omegaconf import OmegaConf
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
+from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
@@ -27,30 +26,16 @@ from .noise_optimizer import DNO, DNOOptions
 def main(config_file: str, dot_list=None):
     if dot_list is None:
         dot_list = []
-    base_args = OmegaConf.load(Path(__file__).parent / "base_config.yml")
+    base_args = OmegaConf.structured(GenerateOptions())
     user_args = OmegaConf.load(config_file)
     cli_args = OmegaConf.from_cli(dot_list)
-    args = OmegaConf.merge(base_args, user_args, cli_args)
-
-    # Parse DNO options once to get optimizer
-    dno_options_schema = OmegaConf.structured(DNOOptions())
-    dno_options: DNOOptions = OmegaConf.merge(dno_options_schema, args.dno) # type: ignore
+    args: GenerateOptions = OmegaConf.merge(base_args, user_args, cli_args) # type: ignore
 
     assert args.text_prompt != "", "Please specify text_prompt"
-
-    args.niter = os.path.basename(args.model_path).replace("model", "").replace(".pt", "")
-    args.n_frames = min(args.max_frames, int(args.motion_length * args.fps))
-    args.gen_frames = int(6.0 * args.fps)
-    args.batch_size = args.num_samples
     assert args.gen_frames <= args.n_frames, "gen_frames must be less than n_frames"
 
     fixseed(args.seed)
     setup_dist(args.device)
-    args.out_path = (
-        Path(args.model_path).parent
-        / "samples_{}_seed{}_{}".format(args.niter, args.seed, args.text_prompt.replace(" ", "_").replace(".", ""))
-        / "{}_{}_{}".format(args.task, datetime.now().strftime("%y%m%d-%H%M%S"), dno_options.optimizer.name)
-    )
 
     data, diffusion, model, model_device, model_kwargs, target = prepare_dataset_and_model(args)
 
@@ -198,7 +183,7 @@ def prepare_dataset_and_model(args):
 
 
 def prepare_optimization(
-    args, data, diffusion, kframes, model, model_device, model_kwargs, obs_list, show_target_pose, target
+    args: GenerateOptions, data, diffusion, kframes, model, model_device, model_kwargs, obs_list, show_target_pose, target
 ):
     sample_2 = None
     if args.load_from == "":
@@ -285,9 +270,8 @@ def prepare_optimization(
 
     #### Noise Optimization Config ####
     is_editing_task = not is_noise_init
-    noise_opt_schema = OmegaConf.structured(DNOOptions())
-    noise_opt_schema.diff_penalty_scale = 2e-3 if is_editing_task else 0
-    noise_opt_conf: DNOOptions = OmegaConf.merge(noise_opt_schema, args.dno)  # type: ignore
+    noise_opt_conf: DNOOptions = args.dno
+    noise_opt_conf.diff_penalty_scale = 2e-3 if is_editing_task else 0
     start_from_noise = is_noise_init
 
     if args.task == "motion_inbetweening":
@@ -363,7 +347,7 @@ def prepare_optimization(
 
 
 def process_results(
-    args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target
+    args: GenerateOptions, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target
 ):
     for t in step_out_list:
         print("save optimize at", t)
