@@ -1,10 +1,18 @@
 import math
 from dataclasses import dataclass, field
-from typing import Literal
+from enum import Enum
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
+
+
+class OptimizerType(str, Enum):
+    Adam = "Adam"
+    LBFGS = "LBFGS"
+    SGD = "SGD"
+    GaussNewton = "GaussNewton"
+    LevenbergMarquardt = "LevenbergMarquardt"
 
 
 @dataclass
@@ -27,7 +35,7 @@ class DNOOptions:
         metadata={"help": "penalty for the difference between the final z and the initial z"},
     )
     lr_warm_up_steps: int = field(default=50, metadata={"help": "Number of warm-up steps for the learning rate"})
-    lr_decay_steps: int = field(
+    lr_decay_steps: int | None = field(
         default=None,
         metadata={"help": "Number of decay steps (if None, then set to num_opt_steps)"},
     )
@@ -38,6 +46,7 @@ class DNOOptions:
     )
 
     # Custom optimizer options
+    optimizer: OptimizerType = field(default=OptimizerType.Adam, metadata={"help": "Optimizer to use for DNO."})
     lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
 
     def __post_init__(self):
@@ -46,21 +55,18 @@ class DNOOptions:
             self.lr_decay_steps = self.num_opt_steps
 
 
-OptimizerType = Literal["Adam", "LBFGS", "SGD", "GaussNewton", "LevenbergMarquardt"]
-
-
 def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
-        case "Adam":
+        case OptimizerType.Adam:
             return torch.optim.Adam(params, lr=config.lr)
-        case "LBFGS":
+        case OptimizerType.LBFGS:
             return torch.optim.LBFGS(params, lr=config.lr, history_size=config.lbfgs.history_size)
-        case "SGD":
+        case OptimizerType.SGD:
             return torch.optim.SGD(params, lr=config.lr)
-        case "GaussNewton":
+        case OptimizerType.GaussNewton:
             raise NotImplementedError(optimizer)
-        case "LevenbergMarquardt":
+        case OptimizerType.LevenbergMarquardt:
             raise NotImplementedError(optimizer)
         case _:
             raise ValueError(f"`{optimizer}` is not a valid optimizer")
@@ -77,9 +83,9 @@ class DNO:
         model,
         criterion,
         start_z,
-        optimizer: OptimizerType,
         conf: DNOOptions,
     ):
+        print("DNO options:", conf)
         self.model = model
         self.criterion = criterion
         # for diff penalty
@@ -90,7 +96,7 @@ class DNO:
         # excluding the first dimension (batch size)
         self.dims = list(range(1, len(self.start_z.shape)))
 
-        self.optimizer = create_optimizer(optimizer, [self.current_z], self.conf)
+        self.optimizer = create_optimizer(self.conf.optimizer, [self.current_z], self.conf)
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
@@ -114,9 +120,9 @@ class DNO:
         self.hist = []
         self.info = {}
 
-        print(f"Initialized DNO with {optimizer} optimizer")
+        print(f"Initialized DNO with {self.conf.optimizer} optimizer")
 
-    def __call__(self, num_steps: int = None):
+    def __call__(self, num_steps: int | None = None):
         return self.optimize(num_steps=num_steps)
 
     def optimize(self, num_steps: int | None = None):
@@ -144,6 +150,7 @@ class DNO:
 
         hist = self.compute_hist(batch_size=batch_size)
 
+        assert self.last_x is not None, "Missing result"
         return {
             # last step's z
             "z": self.current_z.detach(),

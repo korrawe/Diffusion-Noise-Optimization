@@ -21,7 +21,7 @@ from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
 from utils.output_util import construct_template_variables, sample_to_motion, save_multiple_samples
 
-from .noise_optimizer import DNO, DNOOptions, LBFGSOptions
+from .noise_optimizer import DNO, DNOOptions
 
 
 def main(config_file: str, dot_list=None):
@@ -125,7 +125,7 @@ def main(config_file: str, dot_list=None):
         )
 
     ######## Main optimization loop #######
-    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, optimizer=args.optimizer, conf=noise_opt_conf)
+    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf)
     #######################################
     out = noise_opt()
 
@@ -281,11 +281,9 @@ def prepare_optimization(
 
     #### Noise Optimization Config ####
     is_editing_task = not is_noise_init
-    noise_opt_conf = DNOOptions(
-        num_opt_steps=args.num_opt_steps,  # 300 if is_editing_task else 500,
-        diff_penalty_scale=2e-3 if is_editing_task else 0,
-        lbfgs=LBFGSOptions(history_size=args.lbfgs.history_size),
-    )
+    noise_opt_schema = OmegaConf.structured(DNOOptions())
+    noise_opt_schema.diff_penalty_scale = 2e-3 if is_editing_task else 0
+    noise_opt_conf: DNOOptions = OmegaConf.merge(noise_opt_schema, args.dno) # type: ignore
     start_from_noise = is_noise_init
 
     if args.task == "motion_inbetweening":
