@@ -1,80 +1,34 @@
 import math
-from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
-from .levenberg_marquardt import LevenbergMarquardt
-from .gauss_newton import GaussNewton
 
-@dataclass
-class LBFGSOptions:
-    history_size: int = field(default=10, metadata={"help": "Update history size"})
+from dno_optimized.gauss_newton import GaussNewton
+from dno_optimized.levenberg_marquardt import LevenbergMarquardt
+from dno_optimized.options import DNOOptions, OptimizerType
 
-
-@dataclass
-class LevenbergMarquardtOptions:
-    attempts_per_step: int = field(
-        default=10,
-        metadata={
-            "help": "Number of attempts per step (1 for editing, 2 for refinement, can go further for better results)"
-        },
-    )
-    damping_fac: float = field(
-        default=1e-3,
-        metadata={
-            "help": "Damping factor $\lambda$ in Levenberg Marquardt"
-        }
-    )
+if TYPE_CHECKING:
+    from torch.utils.tensorboard.writer import SummaryWriter
 
 
-@dataclass
-class DNOOptions:
-    num_opt_steps: int = field(
-        default=500,
-        metadata={
-            "help": "Number of optimization steps (300 for editing, 500 for refinement, can go further for better results)"
-        },
-    )
-    lr: float = field(default=5e-2, metadata={"help": "Learning rate"})
-    perturb_scale: float = field(default=0, metadata={"help": "scale of the noise perturbation"})
-    diff_penalty_scale: float = field(
-        default=0,
-        metadata={"help": "penalty for the difference between the final z and the initial z"},
-    )
-    lr_warm_up_steps: int = field(default=50, metadata={"help": "Number of warm-up steps for the learning rate"})
-    lr_decay_steps: int = field(
-        default=None,
-        metadata={"help": "Number of decay steps (if None, then set to num_opt_steps)"},
-    )
-    decorrelate_scale: float = field(default=1000, metadata={"help": "penalty for the decorrelation of the noise"})
-    decorrelate_dim: int = field(
-        default=3,
-        metadata={"help": "dimension to decorrelate (we usually decorrelate time dimension)"},
-    )
-
-    # Custom optimizer options
-    lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
-    levenbergMarquardt: LevenbergMarquardtOptions = field(default_factory=LevenbergMarquardtOptions, metadata={"help": "Options for Levenberg Marquardt optimizer"})
-
-    def __post_init__(self):
-        # if lr_decay_steps is not set, then set it to num_opt_steps
-        if self.lr_decay_steps is None:
-            self.lr_decay_steps = self.num_opt_steps
-
-
-OptimizerType = Literal["Adam", "LBFGS", "SGD", "GaussNewton", "LevenbergMarquardt"]
-
-
-def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model, criterion) -> torch.optim.Optimizer:
+def create_optimizer(
+    optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model, criterion
+) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
-        case "Adam":
+        case OptimizerType.Adam:
             return torch.optim.Adam(params, lr=config.lr)
-        case "LBFGS":
-            return torch.optim.LBFGS(params, lr=config.lr, history_size=config.lbfgs.history_size)
-        case "SGD":
+        case OptimizerType.LBFGS:
+            return torch.optim.LBFGS(
+                params,
+                lr=config.lr,
+                line_search_fn=config.lbfgs.line_search_fn,
+                max_iter=config.lbfgs.max_iter,
+                history_size=config.lbfgs.history_size,
+            )
+        case OptimizerType.SGD:
             return torch.optim.SGD(params, lr=config.lr)
         case "GaussNewton":
             return GaussNewton(params, lr=config.lr)
@@ -86,7 +40,12 @@ def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptio
             #     learning_rate=config.lr,
             #     attempts_per_step=config.levenbergMarquardt.attempts_per_step,
             #     solve_method='qr')
-            return LevenbergMarquardt(params, lr=config.lr, damping_fac=config.levenbergMarquardt.damping_fac, attempts_per_step=config.levenbergMarquardt.attempts_per_step)
+            return LevenbergMarquardt(
+                params,
+                lr=config.lr,
+                damping_fac=config.levenbergMarquardt.damping_fac,
+                attempts_per_step=config.levenbergMarquardt.attempts_per_step,
+            )
         case _:
             raise ValueError(f"`{optimizer}` is not a valid optimizer")
 
@@ -96,7 +55,7 @@ class Model(torch.nn.Module):
         super().__init__()
         self.model = model
         self.params = params
-    
+
     def forward(self, z):
         return self.model(z)
 
@@ -107,14 +66,12 @@ class DNO:
         start_z: (N, 263, 1, 120)
     """
 
-    def __init__(
-        self,
-        model,
-        criterion,
-        start_z,
-        optimizer: OptimizerType,
-        conf: DNOOptions,
-    ):
+    # Variables from info dict to be logged to tensorboard (if enabled)
+    TB_GLOBAL_VARS = ["lr", "perturb_scale"]
+    TB_GROUP_VARS = ["loss", "loss_diff", "loss_decorrelate", "diff_norm", "grad_norm"]
+    TB_HIST_VARS = ["x", "z"]
+
+    def __init__(self, model, criterion, start_z, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
         self.model = model
         self.criterion = criterion
         # for diff penalty
@@ -125,14 +82,18 @@ class DNO:
         # excluding the first dimension (batch size)
         self.dims = list(range(1, len(self.start_z.shape)))
 
-        self.optimizer = create_optimizer(optimizer, [self.current_z], self.conf, model, criterion)
+        self.optimizer = create_optimizer(self.conf.optimizer, [self.current_z], self.conf, model, criterion)
+        print(f"INFO: Using {self.conf.optimizer.name} optimizer with LR of {self.conf.lr:.2g}")
 
         self.lr_scheduler = []
         if conf.lr_warm_up_steps > 0:
             self.lr_scheduler.append(lambda step: warmup_scheduler(step, conf.lr_warm_up_steps))
-        self.lr_scheduler.append(
-            lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
-        )
+            print(f"INFO: Using linear learning rate warmup over {conf.lr_warm_up_steps} steps")
+        if conf.lr_decay_steps > 0:
+            self.lr_scheduler.append(
+                lambda step: cosine_decay_scheduler(step, conf.lr_decay_steps, conf.num_opt_steps, decay_first=False)
+            )
+            print(f"INFO: Using cosine learning rate decay over {conf.lr_decay_steps} steps")
 
         self.step_count = 0
 
@@ -149,9 +110,17 @@ class DNO:
         self.hist = []
         self.info = {}
 
-        print(f"Initialized DNO with {optimizer} optimizer")
+        self.tb_writer = tb_writer
 
-    def __call__(self, num_steps: int = None):
+    @property
+    def batch_size(self):
+        return self.start_z.size(0)
+
+    @property
+    def global_step(self):
+        return self.step_count * self.batch_size
+
+    def __call__(self, num_steps: int | None = None):
         return self.optimize(num_steps=num_steps)
 
     def optimize(self, num_steps: int | None = None):
@@ -161,6 +130,7 @@ class DNO:
         batch_size = self.start_z.shape[0]
 
         for i in (pb := tqdm(range(num_steps))):
+
             def closure():
                 # Reset gradients
                 self.optimizer.zero_grad()
@@ -182,10 +152,12 @@ class DNO:
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
             # Logging
             self.log_data(self.last_x)
+            self.log_tensorboard(self.last_x, batch_size)
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
         hist = self.compute_hist(batch_size=batch_size)
 
+        assert self.last_x is not None, "Missing result"
         return {
             # last step's z
             "z": self.current_z.detach(),
@@ -193,7 +165,7 @@ class DNO:
             "x": self.last_x.detach(),
             "hist": hist,
         }
-    
+
     # def compute_torch_optimizer(self, batch_size):
     #     def closure():
     #         # Reset gradients
@@ -285,6 +257,45 @@ class DNO:
 
         self.step_count += 1
         self.hist.append(self.info)
+
+    def log_tensorboard(self, x, batch_size: int):
+        if self.tb_writer is None:
+            return
+
+        # Functino to convert possibly tensor value to scalar
+        def convert_value(x: Any):
+            if isinstance(x, list):
+                return sum(x) / len(x)
+            if isinstance(x, torch.Tensor):
+                return x.mean().detach().cpu().item()
+            return x
+
+        # Used for ordering variables in TB
+        group_index = 0
+        # Log all variables
+        # Scalar value, or value broadcast to batch (e.g. learning rate)
+        for var in self.TB_GLOBAL_VARS:
+            scalar_value = convert_value(self.info[var])
+            self.tb_writer.add_scalar(f"{group_index:02d}_dno/{var}", scalar_value, global_step=self.global_step)
+        group_index += 1
+
+        # Batched value (one per trial)
+        for var in self.TB_GROUP_VARS:
+            value = self.info[var]
+            for trial, trial_value in enumerate(value):
+                trial_value = convert_value(trial_value)
+                self.tb_writer.add_scalar(
+                    f"{group_index:02d}_{var}/trial_{trial}", trial_value, global_step=self.global_step
+                )
+            group_index += 1
+
+        # Log noise and output histograms
+        for var in self.TB_HIST_VARS:
+            for trial, trial_value in enumerate(self.info[var]):
+                self.tb_writer.add_histogram(
+                    f"{group_index:02d}_hist_{var}/trial_{trial}", trial_value, global_step=self.global_step
+                )
+            group_index += 1
 
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)

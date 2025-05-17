@@ -1,6 +1,7 @@
 task: trajectory_editing
 num_ode_steps: 10
-num_opt_steps: 800 # 100
 gradient_checkpoint: False
-optimizer: Adam # Adam, SGD, LBFGS, Levenberg-Marquardt, ...
-lr: 5e-3
+dno:
+  num_opt_steps: 800
+  optimizer: Adam # Adam, SGD, LBFGS, LevenbergMarquardt, ...
+  lr: 5e-3 # Default: 5e-2

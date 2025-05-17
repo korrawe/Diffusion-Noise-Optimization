@@ -3,7 +3,7 @@ import os
 import torch
 
 from data_loaders.humanml.utils.plot_script import plot_3d_motion_static
-from sample.keyframe_pattern import get_kframes, get_obstacles
+from sample.keyframe_pattern import get_obstacles
 
 
 def prepare_task(task_info, args):
@@ -46,7 +46,7 @@ def task_trajectory_editing(task_info, args, target, target_mask):
     the editing target.
     """
     # Get obstacle list
-    if "use_obstacles" in args:
+    if hasattr(args, "use_obstacles") and args.use_obstacles:
         obs_list = get_obstacles()
     else:
         obs_list = []

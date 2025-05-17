@@ -1,16 +1,17 @@
 import os
+import sys
 from argparse import ArgumentParser
-from datetime import datetime
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from omegaconf import OmegaConf
+from torch.utils.tensorboard.writer import SummaryWriter
 
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
+from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
@@ -21,32 +22,26 @@ from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
 from utils.output_util import construct_template_variables, sample_to_motion, save_multiple_samples
 
-from .noise_optimizer import DNO, DNOOptions, LBFGSOptions, LevenbergMarquardtOptions
+from .noise_optimizer import DNO, DNOOptions
 
 
 def main(config_file: str, dot_list=None):
     if dot_list is None:
         dot_list = []
-    base_args = OmegaConf.load(Path(__file__).parent / "base_config.yml")
+    # Create structured base config
+    schema_with_defaults = OmegaConf.structured(GenerateOptions())
+    # Merge with user args from file and dotlist
     user_args = OmegaConf.load(config_file)
     cli_args = OmegaConf.from_cli(dot_list)
-    args = OmegaConf.merge(base_args, user_args, cli_args)
+    merged_config = OmegaConf.merge(schema_with_defaults, user_args, cli_args)
+    # Convert back to plain dataclass so we can access computed properties
+    args: GenerateOptions = OmegaConf.to_object(merged_config)  # type: ignore
 
     assert args.text_prompt != "", "Please specify text_prompt"
-
-    args.niter = os.path.basename(args.model_path).replace("model", "").replace(".pt", "")
-    args.n_frames = min(args.max_frames, int(args.motion_length * args.fps))
-    args.gen_frames = int(6.0 * args.fps)
-    args.batch_size = args.num_samples
     assert args.gen_frames <= args.n_frames, "gen_frames must be less than n_frames"
 
     fixseed(args.seed)
     setup_dist(args.device)
-    args.out_path = (
-        Path(args.model_path).parent
-        / "samples_{}_seed{}_{}".format(args.niter, args.seed, args.text_prompt.replace(" ", "_").replace(".", ""))
-        / "{}_{}_{}".format(args.task, args.optimizer, datetime.now().strftime("%y%m%d-%H%M%S"))
-    )
 
     data, diffusion, model, model_device, model_kwargs, target = prepare_dataset_and_model(args)
 
@@ -124,10 +119,16 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
+    if args.logging.tensorboard_enabled:
+        tb_logdir = args.logging.tensorboard_logdir or os.path.join(args.out_path, "logs")
+        tb_writer = SummaryWriter(log_dir=tb_logdir, flush_secs=10)
+    else:
+        tb_writer = None
+
     ######## Main optimization loop #######
-    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, optimizer=args.optimizer, conf=noise_opt_conf)
-    #######################################
+    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, tb_writer=tb_writer)
     out = noise_opt()
+    #######################################
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(
         args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target
@@ -194,7 +195,16 @@ def prepare_dataset_and_model(args):
 
 
 def prepare_optimization(
-    args, data, diffusion, kframes, model, model_device, model_kwargs, obs_list, show_target_pose, target
+    args: GenerateOptions,
+    data,
+    diffusion,
+    kframes,
+    model,
+    model_device,
+    model_kwargs,
+    obs_list,
+    show_target_pose,
+    target,
 ):
     sample_2 = None
     if args.load_from == "":
@@ -281,16 +291,8 @@ def prepare_optimization(
 
     #### Noise Optimization Config ####
     is_editing_task = not is_noise_init
-    noise_opt_conf = DNOOptions(
-        num_opt_steps=args.num_opt_steps,  # 300 if is_editing_task else 500,
-        diff_penalty_scale=2e-3 if is_editing_task else 0,
-        lr=args.lr,
-        lbfgs=LBFGSOptions(history_size=args.lbfgs.history_size),
-        levenbergMarquardt=LevenbergMarquardtOptions(
-            attempts_per_step=args.levenbergMarquardt.attempts_per_step,
-            damping_fac=args.levenbergMarquardt.damping_fac,
-        )
-    )
+    noise_opt_conf: DNOOptions = args.dno
+    noise_opt_conf.diff_penalty_scale = 2e-3 if is_editing_task else 0
     start_from_noise = is_noise_init
 
     if args.task == "motion_inbetweening":
@@ -366,7 +368,17 @@ def prepare_optimization(
 
 
 def process_results(
-    args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target
+    args: GenerateOptions,
+    data,
+    gen_sample,
+    inter_out,
+    model,
+    model_kwargs,
+    out,
+    sample,
+    sample_2,
+    step_out_list,
+    target,
 ):
     for t in step_out_list:
         print("save optimize at", t)
@@ -459,7 +471,17 @@ def process_results(
 
 
 def save_videos(
-    all_lengths, all_motions, all_text, args, captions, kframes, num_dump_step, obs_list, show_target_pose, target
+    all_lengths,
+    all_motions,
+    all_text,
+    args,
+    captions,
+    kframes,
+    num_dump_step,
+    obs_list,
+    show_target_pose,
+    target,
+    tb_writer: SummaryWriter | None = None,
 ):
     total_num_samples = args.num_samples * args.num_repetitions * num_dump_step
 
@@ -552,4 +574,8 @@ if __name__ == "__main__":
     parser.add_argument("config_file", type=str, help="Path to a YML config file.")
     parser.add_argument("dotlist", nargs="*", help="A dotlist of arguments parsed by omegaconf.")
     args = parser.parse_args()
-    main(args.config_file, args.dotlist)
+    try:
+        main(args.config_file, args.dotlist)
+    except KeyboardInterrupt:
+        print("Aborted.", file=sys.stderr)
+        sys.exit(1)
