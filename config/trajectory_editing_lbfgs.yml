@@ -9,5 +9,3 @@ dno:
   lbfgs:
     history_size: 100
     line_search_fn: strong_wolfe # Or "strong_wolfe"
-logging:
-  tensorboard_enabled: true

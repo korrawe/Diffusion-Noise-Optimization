@@ -1,5 +1,5 @@
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch.optim.optimizer import ParamsT
@@ -40,6 +40,11 @@ class DNO:
         start_z: (N, 263, 1, 120)
     """
 
+    # Variables from info dict to be logged to tensorboard (if enabled)
+    TB_GLOBAL_VARS = ["lr", "perturb_scale"]
+    TB_GROUP_VARS = ["loss", "loss_diff", "loss_decorrelate", "diff_norm", "grad_norm"]
+    TB_HIST_VARS = ["x", "z"]
+
     def __init__(self, model, criterion, start_z, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
         self.model = model
         self.criterion = criterion
@@ -79,6 +84,14 @@ class DNO:
         self.tb_writer = tb_writer
 
         print(f"Initialized DNO with {self.conf.optimizer} optimizer")
+
+    @property
+    def batch_size(self):
+        return self.start_z.size(0)
+
+    @property
+    def global_step(self):
+        return self.step_count * self.batch_size
 
     def __call__(self, num_steps: int | None = None):
         return self.optimize(num_steps=num_steps)
@@ -197,18 +210,32 @@ class DNO:
     def log_tensorboard(self, x, batch_size: int):
         if self.tb_writer is None:
             return
-        for key, value in self.info.items():
-            if isinstance(value, list):
-                if all(x == value[0] for x in value):
-                    # List of values, all same across batch
-                    value = value[0]
-                else:
-                    # Other metric (e.g. loss list for batch)
-                    value = sum(value) / len(value)
-            if isinstance(value, torch.Tensor):
-                value = torch.mean(value).detach().cpu().item()
-            batch_size = self.start_z.shape[0]
-            self.tb_writer.add_scalar(f"dno/{key}", value, global_step=self.step_count * batch_size)
+
+        # Functino to convert possibly tensor value to scalar
+        def convert_value(x: Any):
+            if isinstance(x, list):
+                return sum(x) / len(x)
+            if isinstance(x, torch.Tensor):
+                return x.mean().detach().cpu().item()
+            return x
+
+        # Log all variables
+        # Scalar value, or value broadcast to batch (e.g. learning rate)
+        for var in self.TB_GLOBAL_VARS:
+            scalar_value = convert_value(self.info[var])
+            self.tb_writer.add_scalar(f"dno/{var}", scalar_value, global_step=self.global_step)
+
+        # Batched value (one per trial)
+        for var in self.TB_GROUP_VARS:
+            value = self.info[var]
+            for trial, trial_value in enumerate(value):
+                trial_value = convert_value(trial_value)
+                self.tb_writer.add_scalar(f"{var}/trial_{trial}", trial_value, global_step=self.global_step)
+
+        # Log noise and output histograms
+        for var in self.TB_HIST_VARS:
+            for trial, trial_value in enumerate(self.info[var]):
+                self.tb_writer.add_histogram(f"hist_{var}/trial_{trial}", trial_value, global_step=self.global_step)
 
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)

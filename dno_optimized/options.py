@@ -100,19 +100,12 @@ class DNOOptions:
 
 @dataclass
 class LoggingOptions:
-    tensorboard_enabled: bool = False
+    tensorboard_enabled: bool = True
     tensorboard_logdir: str | None = None
 
 
 @dataclass
 class GenerateOptions:
-    # ## COMPUTED (set in post-init)
-    # niter: str = ""
-    # n_frames: int = -1
-    # gen_frames: int = -1
-    # batch_size: int = -1
-    # out_path: Path = Path("/tmp")
-
     ## MISC
     num_dump_step: int = 1
     predict_xstart: bool = False
@@ -120,6 +113,7 @@ class GenerateOptions:
     ## GENERAL
     task: DNOTask = DNOTask.trajectory_editing
     model_path: str = "./save/mdm_avg_dno/model000500000_avg.pt"
+    start_time: str = datetime.now().strftime("%y%m%d-%H%M%S")
 
     ## GENERATE
     text_prompt: str = "a person is jumping"
@@ -173,6 +167,10 @@ class GenerateOptions:
 
     logging: LoggingOptions = field(default_factory=LoggingOptions)
 
+    def __post_init__(self):
+        # Peform post-initialization work here
+        pass
+
     ## COMPUTED PROPERTIES
     @property
     def niter(self):
@@ -196,9 +194,8 @@ class GenerateOptions:
     def out_path(self):
         text_prompt_safe = re.sub(r"\s+", "_", self.text_prompt.strip())  # Trim and replace spaces by _
         text_prompt_safe = re.sub(r"[^\w\d_]", "", text_prompt_safe)  # Remove any non-word characters
-        timestamp = datetime.now().strftime("%y%m%d-%H%M%S")
         return (
             Path(self.model_path).parent
             / f"samples_{self.niter}_seed{self.seed}_{text_prompt_safe}"
-            / f"{self.task}_{timestamp}_{self.dno.optimizer.name}"
+            / f"{self.task.name}_{self.start_time}_{self.dno.optimizer.name}"
         )
