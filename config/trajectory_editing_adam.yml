@@ -1,8 +1,8 @@
 task: trajectory_editing
 num_ode_steps: 10
-num_opt_steps: 500 # 100   100,500,800,1000,1500
 gradient_checkpoint: False
-optimizer: Adam # Adam, SGD, L-BFGS, Levenberg-Marquardt, ...
-lr: 5e-2
-text_prompt: a man is walking # a man is walking, a man is walking forward and and then toward the left hand side, a man is walking forward, then turns to the right, bounces into a squat, and waves with his hands
-stopping_value: 1e-10
+dno:
+  num_opt_steps: 800
+  optimizer: Adam # Adam, SGD, LBFGS, LevenbergMarquardt, ...
+  lr: 5e-2 # Default
+  stopping_value: 1e-10
