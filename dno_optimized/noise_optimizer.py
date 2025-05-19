@@ -69,12 +69,14 @@ class DNO:
         start_z,
         optimizer: OptimizerType,
         conf: DNOOptions,
+        stopping_value,
     ):
         self.model = model
         self.criterion = criterion
         # for diff penalty
         self.start_z = start_z.detach()
         self.conf = conf
+        self.stopping_value = stopping_value
 
         self.current_z = self.start_z.clone().requires_grad_(True)
         # excluding the first dimension (batch size)
@@ -120,6 +122,7 @@ class DNO:
         
         batch_size = self.start_z.shape[0]
 
+        stop_optimize = num_steps
         for i in (pb := tqdm(range(num_steps))):
             def closure():
                 # Reset gradients
@@ -135,6 +138,11 @@ class DNO:
             # Logging
             self.log_data(self.last_x)
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
+            
+            # stopping criteria: stop optimization if loss reached a enough small value (1e-3)
+            if self.info["loss"].mean() < self.stopping_value:
+                stop_optimize =  i
+                break
 
         hist = self.compute_hist(batch_size=batch_size)
 
@@ -144,6 +152,8 @@ class DNO:
             # previous step's x
             "x": self.last_x.detach(),
             "hist": hist,
+            # amount_of_performed optimize steps
+            "stop_optimize": stop_optimize,
         }
 
 
