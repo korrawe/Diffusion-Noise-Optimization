@@ -569,6 +569,7 @@ def load_dataset(args, n_frames):
         split="test",
         hml_mode="text_only",  # 'train'
         traject_only=False,
+        num_workers=args.dataloader_num_workers,
     )
     data = get_dataset_loader(conf)
     data.fixed_length = n_frames

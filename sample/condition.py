@@ -583,7 +583,7 @@ class CondKeyLocationsLoss:
         # NOTE: optimizing to the whole trajectory is not good.
         self.gt_style = 'target'  # 'inpainting_motion'
 
-    def __call__(self, xstart_in, y=None,): # *args, **kwds):
+    def __call__(self, xstart_in, y=None,) -> torch.Tensor: # *args, **kwds):
         """
         Args:
             xstart_in: [bs, 263, 1, 120]

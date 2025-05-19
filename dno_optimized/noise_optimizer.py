@@ -1,12 +1,13 @@
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-from torch.optim.optimizer import ParamsT
+from torch import Tensor
 from tqdm import tqdm
+from torch.optim.optimizer import ParamsT
 
 from dno_optimized.gauss_newton import GaussNewton
-from dno_optimized.levenberg_marquardt import LevenbergMarquardt
+from dno_optimized.levenberg_marquardt_v2 import LevenbergMarquardt
 from dno_optimized.options import DNOOptions, OptimizerType
 
 if TYPE_CHECKING:
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def create_optimizer(
-    optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model, criterion
+    optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model: Callable[[Tensor], Tensor], criterion: Callable[[Tensor], Tensor]
 ) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
@@ -42,8 +43,9 @@ def create_optimizer(
             #     solve_method='qr')
             return LevenbergMarquardt(
                 params,
-                lr=config.lr,
-                damping_fac=config.levenbergMarquardt.damping_fac,
+                model=model,
+                loss_fn=criterion,
+                learning_rate=config.lr,
                 attempts_per_step=config.levenbergMarquardt.attempts_per_step,
             )
         case _:
@@ -71,7 +73,7 @@ class DNO:
     TB_GROUP_VARS = ["loss", "loss_diff", "loss_decorrelate", "diff_norm", "grad_norm"]
     TB_HIST_VARS = ["x", "z"]
 
-    def __init__(self, model, criterion, start_z, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
+    def __init__(self, model, criterion: Callable[[Tensor], Tensor], start_z: Tensor, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
         self.model = model
         self.criterion = criterion
         # for diff penalty
@@ -139,6 +141,7 @@ class DNO:
                 return loss
 
             # Perform optimization round
+            self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
             self.optimizer.step(closure)
 
             # if isinstance(self.optimizer, torch.optim.Optimizer):

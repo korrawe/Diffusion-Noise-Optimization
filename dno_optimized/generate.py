@@ -1,6 +1,7 @@
 import os
 import sys
 from argparse import ArgumentParser
+from pprint import pprint
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,6 +9,7 @@ import torch
 from omegaconf import OmegaConf
 from torch.utils.tensorboard.writer import SummaryWriter
 
+from data_loaders.get_data import DatasetConfig, get_dataset_loader
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
@@ -15,7 +17,7 @@ from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
-from sample.gen_dno import ddim_invert, ddim_loop_with_gradient, load_dataset
+from sample.gen_dno import ddim_invert, ddim_loop_with_gradient
 from utils import dist_util
 from utils.dist_util import setup_dist
 from utils.fixseed import fixseed
@@ -105,7 +107,7 @@ def main(config_file: str, dot_list=None):
         obs_list=obs_list,
     )
 
-    def criterion(x):
+    def criterion(x: torch.Tensor):
         return loss_fn(x, **model_kwargs)
 
     def solver(z):
@@ -143,6 +145,21 @@ def main(config_file: str, dot_list=None):
         all_lengths, all_motions, all_text, args, captions, kframes, num_dump_step, obs_list, show_target_pose, target
     )
 
+
+def load_dataset(args, n_frames):
+    pprint(f"args: {args}")
+    conf = DatasetConfig(
+        name=args.dataset,
+        batch_size=args.batch_size,
+        num_frames=args.max_frames,
+        split="test",
+        hml_mode="text_only",  # 'train'
+        traject_only=False,
+        num_workers=args.dataloader_num_workers,
+    )
+    data = get_dataset_loader(conf)
+    data.fixed_length = n_frames
+    return data
 
 def prepare_dataset_and_model(args):
     print("Loading dataset...")

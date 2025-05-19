@@ -145,6 +145,7 @@ class GenerateOptions:
     ## DATA
     dataset: Dataset = Dataset.humanml
     data_dir: str = ""
+    dataloader_num_workers: int = 8
 
     ## MODEL
     arch: Arch = Arch.trans_enc

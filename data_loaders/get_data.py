@@ -49,6 +49,7 @@ class DatasetConfig:
     augment_type: str = 'none'
     std_scale_shift: Tuple[float] = (1.0, 0.0)
     drop_redundant: bool = False
+    num_workers: int = 8
 
 
 def get_dataset(conf: DatasetConfig):
@@ -84,7 +85,7 @@ def get_dataset_loader(conf: DatasetConfig, shuffle=True, only_idx=None, with_lo
         loader = DataLoader(dataset,
                             batch_size=conf.batch_size,
                             shuffle=shuffle,
-                            num_workers=8,
+                            num_workers=conf.num_workers,
                             drop_last=drop_last,
                             collate_fn=collate)
         return loader
