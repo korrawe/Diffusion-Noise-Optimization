@@ -144,7 +144,7 @@ class DNO:
                 # Reset gradients
                 self.optimizer.zero_grad()
                 # Single step forward and backward
-                self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
+                self.last_x, loss = self.compute_loss(batch_size=batch_size)
                 return loss
 
             # Pre-step callbacks
@@ -154,7 +154,7 @@ class DNO:
 
             # Step optimization and add noise after optimization step
             self.optimizer.step(closure)
-            self.step_schedulers(batch_size=batch_size)
+            self.lr_frac = self.step_schedulers(batch_size=batch_size)
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
 
             self.update_metrics(self.last_x)
@@ -196,6 +196,7 @@ class DNO:
                 lr_frac *= scheduler(self.step_count)
             self.set_lr(self.conf.lr * lr_frac)
         self.info["lr"] = [self.conf.lr * lr_frac] * batch_size
+        return lr_frac
 
     def set_lr(self, lr):
         for i, param_group in enumerate(self.optimizer.param_groups):
@@ -244,7 +245,7 @@ class DNO:
         # grad mode
         self.current_z.grad.data /= self.current_z.grad.norm(p=2, dim=self.dims, keepdim=True)
 
-        return x, lr_frac, loss
+        return x, loss
 
     def noise_perturbation(self, lr_frac, batch_size):
         # noise perturbation
