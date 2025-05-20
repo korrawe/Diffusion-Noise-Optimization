@@ -92,6 +92,8 @@ class DNOOptions:
     optimizer: OptimizerType = field(default=OptimizerType.Adam, metadata={"help": "Optimizer to use for DNO."})
     lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
 
+    stopping_value: float = field(default=1e-8, metadata={"help": "When the loss reaches this value, stop the optimization"})
+
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
         if self.lr_decay_steps == -1:

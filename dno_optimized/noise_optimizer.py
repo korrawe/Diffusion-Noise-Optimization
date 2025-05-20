@@ -137,7 +137,7 @@ class DNO:
         stop_optimize = num_steps
 
         def on_optimize_stop(step: int):
-            global stop_optimize
+            nonlocal stop_optimize
             stop_optimize = step
             print(f"INFO: Stopping optimization early at step {step}/{num_steps}")
 
@@ -163,7 +163,6 @@ class DNO:
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
 
             self.log_data(self.last_x)
-            pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
             # Post-step callbacks
             res = self.callbacks.invoke(
@@ -172,6 +171,9 @@ class DNO:
             if res.stop:
                 on_optimize_stop(i)
                 break
+
+            pb.set_postfix({"loss": self.info["loss"].mean().item()})
+
 
         hist = self.compute_hist(batch_size=batch_size)
 
@@ -184,6 +186,7 @@ class DNO:
             # previous step's x
             "x": self.last_x.detach(),
             "hist": hist,
+            # amount_of_performed optimize steps
             "stop_optimize": stop_optimize,
         }
 

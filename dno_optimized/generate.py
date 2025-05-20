@@ -128,7 +128,7 @@ def main(config_file: str, dot_list=None):
     #######################################
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(
-        args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target
+        args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target, out["stop_optimize"]
     )
 
     all_motions.extend(cur_motions)
@@ -376,7 +376,14 @@ def process_results(
     sample_2,
     step_out_list,
     target,
+    stop_optimize
 ):
+    
+    # new: make here the list of the optimization steps which should be saved, since it is based on the fact if we did all optimization steps or not
+    step_out_list = [0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.95]
+    step_out_list = [int(aa * stop_optimize) for aa in step_out_list]
+    step_out_list[-1] = stop_optimize - 1
+    
     for t in step_out_list:
         print("save optimize at", t)
 
