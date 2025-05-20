@@ -52,6 +52,7 @@ class EarlyStoppingCallback(Callback):
         if self.abs_value is not None:
             if self.mode == "min" and value < self.abs_value or self.mode == "max" and value > self.abs_value:
                 # Surpassed min/max absolute value, stop
+                self.progress.write("Early stopping (abs_value surpassed)")
                 return CallbackStepAction(stop=True)
 
         if self.mode == "min" and value < self._best_value - self.min_improvement:
@@ -67,6 +68,7 @@ class EarlyStoppingCallback(Callback):
             self._steps_since_improvement += 1
 
         if self._steps_since_improvement > self.patience:
+            self.progress.write(f"Early stopping (no improvement over last {self.patience} steps)")
             return CallbackStepAction(stop=True)
 
         return None

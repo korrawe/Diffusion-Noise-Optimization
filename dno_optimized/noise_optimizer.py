@@ -146,7 +146,7 @@ class DNO:
                 return loss
 
             # Pre-step callbacks
-            res = self.callbacks.invoke(self, "step_begin", step=i)
+            res = self.callbacks.invoke(self, "step_begin", pb=pb, step=i)
             if res.stop:
                 break
 
@@ -158,9 +158,7 @@ class DNO:
             self.update_metrics(self.last_x)
 
             # Post-step callbacks
-            res = self.callbacks.invoke(
-                self, "step_end", step=i, info=self.info, hist=self.hist
-            )
+            res = self.callbacks.invoke(self, "step_end", pb=pb, step=i, info=self.info, hist=self.hist)
             if res.stop:
                 break
 

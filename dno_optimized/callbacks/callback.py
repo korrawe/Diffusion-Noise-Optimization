@@ -4,6 +4,8 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Literal, Self, Type, TypeVar
 
+from tqdm import tqdm
+
 from dno_optimized.options import GenerateOptions
 
 if TYPE_CHECKING:
@@ -49,6 +51,7 @@ class Callback(ABC):
         """
         super().__init__()
         self.dno: "DNO"
+        self.progress: tqdm
         self.every_n_steps = every_n_steps or 1
         self.start_after = start_after or 0
 
@@ -137,8 +140,15 @@ class CallbackList(list[Callback]):
         self, dno: "DNO", callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], *args, **kwargs
     ):
         actions = []
+        if "pb" in kwargs:
+            pb = kwargs["pb"]
+            del kwargs["pb"]
+        else:
+            pb = None
         for callback in self:
             callback.dno = dno
+            if pb:
+                callback.progress = pb
             action = callback.invoke(callback_stage, *args, **kwargs)
             actions.append(action)
         return CallbackStepAction.aggregate(actions)
