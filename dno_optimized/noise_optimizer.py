@@ -154,6 +154,7 @@ class DNO:
 
             # Step optimization and add noise after optimization step
             self.optimizer.step(closure)
+            self.step_schedulers(batch_size=batch_size)
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
 
             self.update_metrics(self.last_x)
@@ -187,14 +188,7 @@ class DNO:
             "stop_optimize": stop_optimize,
         }
 
-    def set_lr(self, lr):
-        for i, param_group in enumerate(self.optimizer.param_groups):
-            param_group["lr"] = lr
-
-    def compute_loss(self, batch_size):
-        self.info = default_info()
-        self.info["step"] = [self.step_count] * batch_size
-
+    def step_schedulers(self, batch_size: int):
         # learning rate scheduler
         lr_frac = 1
         if len(self.lr_scheduler) > 0:
@@ -202,6 +196,14 @@ class DNO:
                 lr_frac *= scheduler(self.step_count)
             self.set_lr(self.conf.lr * lr_frac)
         self.info["lr"] = [self.conf.lr * lr_frac] * batch_size
+
+    def set_lr(self, lr):
+        for i, param_group in enumerate(self.optimizer.param_groups):
+            param_group["lr"] = lr
+
+    def compute_loss(self, batch_size):
+        self.info = default_info()
+        self.info["step"] = [self.step_count] * batch_size
 
         # criterion
         x = self.model(self.current_z)

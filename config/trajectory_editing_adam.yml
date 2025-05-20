@@ -13,4 +13,4 @@ callbacks:
     args:
       patience: 50
       min_improvement: 1e-4
-      abs_value: 1.4
+      abs_value: 1e-5
