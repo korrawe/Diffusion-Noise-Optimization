@@ -156,7 +156,7 @@ class DNO:
             self.optimizer.step(closure)
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
 
-            self.log_data(self.last_x)
+            self.update_metrics(self.last_x)
 
             # Post-step callbacks
             res = self.callbacks.invoke(
@@ -253,7 +253,7 @@ class DNO:
         noise = torch.randn_like(self.current_z)
         self.current_z.data += noise * self.conf.perturb_scale * noise_frac
 
-    def log_data(self, x):
+    def update_metrics(self, x):
         # log the norm(z - start_z)
         self.info["diff_norm"] = (self.current_z - self.start_z).norm(p=2, dim=self.dims).detach().cpu()
 
