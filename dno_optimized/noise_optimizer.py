@@ -5,7 +5,7 @@ import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
 
-from dno_optimized.callbacks import Callback, CallbackList
+from dno_optimized.callbacks.callback import Callback, CallbackList
 from dno_optimized.options import DNOOptions, OptimizerType
 
 
@@ -115,6 +115,8 @@ class DNO:
         self.info: DNOInfoDict = {}  # type: ignore
 
         self.callbacks = CallbackList(callbacks or [])
+        print("INFO: Using the following callbacks:")
+        print(*[f"- {cb}" for cb in self.callbacks], sep="\n")
 
     @property
     def batch_size(self):
@@ -132,6 +134,12 @@ class DNO:
             num_steps = self.conf.num_opt_steps
 
         batch_size = self.start_z.shape[0]
+        stop_optimize = num_steps
+
+        def on_optimize_stop(step: int):
+            global stop_optimize
+            stop_optimize = step
+            print(f"INFO: Stopping optimization early at step {step}/{num_steps}")
 
         self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
 
@@ -144,21 +152,30 @@ class DNO:
                 self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
                 return loss
 
-            self.callbacks.invoke(self, "step_begin", step=i, global_step=self.global_step)
+            # Pre-step callbacks
+            res = self.callbacks.invoke(self, "step_begin", step=i, global_step=self.global_step)
+            if res.stop:
+                on_optimize_stop(i)
+                break
 
             # Step optimization and add noise after optimization step
             self.optimizer.step(closure)
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
 
             self.log_data(self.last_x)
-            self.callbacks.invoke(
+            pb.set_postfix({"loss": self.info["loss"].mean().item()})
+
+            # Post-step callbacks
+            res = self.callbacks.invoke(
                 self, "step_end", step=i, global_step=self.global_step, info=self.info, hist=self.hist
             )
-            pb.set_postfix({"loss": self.info["loss"].mean().item()})
+            if res.stop:
+                on_optimize_stop(i)
+                break
 
         hist = self.compute_hist(batch_size=batch_size)
 
-        self.callbacks.invoke(self, 'train_end', num_steps=num_steps, batch_size=batch_size, hist=hist)
+        self.callbacks.invoke(self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist)
 
         assert self.last_x is not None, "Missing result"
         return {
@@ -167,6 +184,7 @@ class DNO:
             # previous step's x
             "x": self.last_x.detach(),
             "hist": hist,
+            "stop_optimize": stop_optimize,
         }
 
     def set_lr(self, lr):
