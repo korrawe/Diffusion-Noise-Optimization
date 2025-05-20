@@ -136,11 +136,6 @@ class DNO:
         batch_size = self.start_z.shape[0]
         stop_optimize = num_steps
 
-        def on_optimize_stop(step: int):
-            nonlocal stop_optimize
-            stop_optimize = step
-            print(f"INFO: Stopping optimization early at step {step}/{num_steps}")
-
         self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
 
         for i in (pb := tqdm(range(num_steps))):
@@ -155,7 +150,6 @@ class DNO:
             # Pre-step callbacks
             res = self.callbacks.invoke(self, "step_begin", step=i, global_step=self.global_step)
             if res.stop:
-                on_optimize_stop(i)
                 break
 
             # Step optimization and add noise after optimization step
@@ -169,11 +163,14 @@ class DNO:
                 self, "step_end", step=i, global_step=self.global_step, info=self.info, hist=self.hist
             )
             if res.stop:
-                on_optimize_stop(i)
                 break
 
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
+        # Check for early stopping
+        if i != num_steps - 1:
+            stop_optimize = i
+            print(f"INFO: Stopping optimization early at step {i}/{num_steps}")
 
         hist = self.compute_hist(batch_size=batch_size)
 
