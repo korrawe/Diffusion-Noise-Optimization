@@ -22,10 +22,13 @@ class TensorboardCallback(Callback):
     ):
         super().__init__(every_n_steps, start_after)
 
+        self.log_dir = log_dir or "logs"
+        self.flush_secs = flush_secs or 2
+
         from torch.utils.tensorboard.writer import SummaryWriter
 
         # Log in CWD/logs by default
-        self.writer = SummaryWriter(log_dir=log_dir or "logs", flush_secs=flush_secs or 2)
+        self._writer = SummaryWriter(log_dir=self.log_dir, flush_secs=self.flush_secs)
 
     @override
     @classmethod
@@ -53,7 +56,7 @@ class TensorboardCallback(Callback):
         # Scalar value, or value broadcast to batch (e.g. learning rate)
         for var in self.TB_GLOBAL_VARS:
             scalar_value = convert_value(info[var])
-            self.writer.add_scalar(f"{group_index:02d}_dno/{var}", scalar_value, global_step=step)
+            self._writer.add_scalar(f"{group_index:02d}_dno/{var}", scalar_value, global_step=step)
         group_index += 1
 
         # Batched value (one per trial)
@@ -61,13 +64,13 @@ class TensorboardCallback(Callback):
             value = info[var]
             for trial, trial_value in enumerate(value):
                 trial_value = convert_value(trial_value)
-                self.writer.add_scalar(f"{group_index:02d}_{var}/trial_{trial}", trial_value, global_step=step)
+                self._writer.add_scalar(f"{group_index:02d}_{var}/trial_{trial}", trial_value, global_step=step)
             group_index += 1
 
         # Log noise and output histograms
         for var in self.TB_HIST_VARS:
             for trial, trial_value in enumerate(info[var]):
-                self.writer.add_histogram(
+                self._writer.add_histogram(
                     f"{group_index:02d}_hist_{var}/trial_{trial}", trial_value, global_step=step
                 )
             group_index += 1

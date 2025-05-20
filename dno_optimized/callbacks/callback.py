@@ -1,3 +1,5 @@
+import os
+import textwrap
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Literal, Self, Type, TypeVar
@@ -6,6 +8,15 @@ from dno_optimized.options import GenerateOptions
 
 if TYPE_CHECKING:
     from noise_optimizer import DNO, DNOInfoDict
+
+
+def _terminal_width(fallback: int = 80):
+    try:
+        columns, _ = os.get_terminal_size()
+        return columns
+    except OSError:
+        # Fallback if terminal size cannot be determined
+        return fallback
 
 
 @dataclass
@@ -90,9 +101,7 @@ class Callback(ABC):
         """
         pass
 
-    def on_step_end(
-        self, step: int, info: "DNOInfoDict", hist: "list[DNOInfoDict]"
-    ) -> CallbackStepAction | None:
+    def on_step_end(self, step: int, info: "DNOInfoDict", hist: "list[DNOInfoDict]") -> CallbackStepAction | None:
         """Runs once after every optimization step (batch)
 
         :param step: Step number/training round/batch index
@@ -110,7 +119,9 @@ class Callback(ABC):
             return f"{attr_name}={repr(value)}"
 
         attrs = [format_arg(attr) for attr in self.__dict__ if not attr.startswith("_")]  # Only public
-        return f"{self.__class__.__name__}({', '.join(attrs)})"
+        attrs_str = ", ".join(attrs)
+        attrs_str = textwrap.fill(attrs_str, width=_terminal_width(), initial_indent="", subsequent_indent=" " * 6)
+        return f"{self.__class__.__name__}({attrs_str})"
 
 
 T = TypeVar("T")
