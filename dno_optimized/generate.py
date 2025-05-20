@@ -11,6 +11,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
+from dno_optimized.callbacks import create_callback
 from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
@@ -119,14 +120,10 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
-    if args.logging.tensorboard_enabled:
-        tb_logdir = args.logging.tensorboard_logdir or os.path.join(args.out_path, "logs")
-        tb_writer = SummaryWriter(log_dir=tb_logdir, flush_secs=10)
-    else:
-        tb_writer = None
+    callbacks = [create_callback(conf.name, args, conf.args) for conf in args.callbacks]
 
     ######## Main optimization loop #######
-    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, tb_writer=tb_writer)
+    noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, callbacks=callbacks)
     out = noise_opt()
     #######################################
 

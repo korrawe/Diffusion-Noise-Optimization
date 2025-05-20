@@ -99,9 +99,9 @@ class DNOOptions:
 
 
 @dataclass
-class LoggingOptions:
-    tensorboard_enabled: bool = True
-    tensorboard_logdir: str | None = None
+class CallbackConfig:
+    name: str
+    args: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -165,7 +165,7 @@ class GenerateOptions:
 
     dno: DNOOptions = field(default_factory=DNOOptions)
 
-    logging: LoggingOptions = field(default_factory=LoggingOptions)
+    callbacks: list[CallbackConfig] = field(default_factory=list)
 
     def __post_init__(self):
         # Peform post-initialization work here

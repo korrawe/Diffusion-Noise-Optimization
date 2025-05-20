@@ -1,14 +1,12 @@
 import math
-from typing import TYPE_CHECKING, Any
+from typing import Iterable, TypedDict
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
 
+from dno_optimized.callbacks import Callback, CallbackList
 from dno_optimized.options import DNOOptions, OptimizerType
-
-if TYPE_CHECKING:
-    from torch.utils.tensorboard.writer import SummaryWriter
 
 
 def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
@@ -34,18 +32,50 @@ def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptio
             raise ValueError(f"`{optimizer}` is not a valid optimizer")
 
 
+class DNOInfoDict(TypedDict):
+    # Singleton values
+    step: list[int]
+    lr: list[float]
+    perturb_scale: list[float]
+    # Batched tensor values
+    loss: torch.Tensor
+    loss_diff: torch.Tensor
+    loss_decorrelate: torch.Tensor
+    grad_norm: torch.Tensor
+    diff_norm: torch.Tensor
+    z: torch.Tensor
+    x: torch.Tensor
+
+
+def default_info() -> DNOInfoDict:
+    return {
+        "step": [],
+        "lr": [],
+        "perturb_scale": [],
+        "loss": torch.empty([]),
+        "loss_diff": torch.empty([]),
+        "loss_decorrelate": torch.empty([]),
+        "grad_norm": torch.empty([]),
+        "diff_norm": torch.empty([]),
+        "x": torch.empty([]),
+        "z": torch.empty([]),
+    }
+
+
 class DNO:
     """
     Args:
         start_z: (N, 263, 1, 120)
     """
 
-    # Variables from info dict to be logged to tensorboard (if enabled)
-    TB_GLOBAL_VARS = ["lr", "perturb_scale"]
-    TB_GROUP_VARS = ["loss", "loss_diff", "loss_decorrelate", "diff_norm", "grad_norm"]
-    TB_HIST_VARS = ["x", "z"]
-
-    def __init__(self, model, criterion, start_z, conf: DNOOptions, tb_writer: "SummaryWriter | None" = None):
+    def __init__(
+        self,
+        model,
+        criterion,
+        start_z,
+        conf: DNOOptions,
+        callbacks: "Iterable[Callback] | None" = None,
+    ):
         self.model = model
         self.criterion = criterion
         # for diff penalty
@@ -81,10 +111,10 @@ class DNO:
         #    "lr": [lr] * batch_size,
         #    ...
         # }
-        self.hist = []
-        self.info = {}
+        self.hist: list[DNOInfoDict] = []
+        self.info: DNOInfoDict = {}  # type: ignore
 
-        self.tb_writer = tb_writer
+        self.callbacks = CallbackList(callbacks or [])
 
     @property
     def batch_size(self):
@@ -103,6 +133,8 @@ class DNO:
 
         batch_size = self.start_z.shape[0]
 
+        self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
+
         for i in (pb := tqdm(range(num_steps))):
 
             def closure():
@@ -112,16 +144,21 @@ class DNO:
                 self.last_x, self.lr_frac, loss = self.compute_loss(batch_size=batch_size)
                 return loss
 
-            # Perform optimization round
+            self.callbacks.invoke(self, "step_begin", step=i, global_step=self.global_step)
+
+            # Step optimization and add noise after optimization step
             self.optimizer.step(closure)
-            # Add noise after optimization step
             self.noise_perturbation(self.lr_frac, batch_size=batch_size)
-            # Logging
+
             self.log_data(self.last_x)
-            self.log_tensorboard(self.last_x, batch_size)
+            self.callbacks.invoke(
+                self, "step_end", step=i, global_step=self.global_step, info=self.info, hist=self.hist
+            )
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
         hist = self.compute_hist(batch_size=batch_size)
+
+        self.callbacks.invoke(self, 'train_end', num_steps=num_steps, batch_size=batch_size, hist=hist)
 
         assert self.last_x is not None, "Missing result"
         return {
@@ -137,7 +174,8 @@ class DNO:
             param_group["lr"] = lr
 
     def compute_loss(self, batch_size):
-        self.info = {"step": [self.step_count] * batch_size}
+        self.info = default_info()
+        self.info["step"] = [self.step_count] * batch_size
 
         # learning rate scheduler
         lr_frac = 1
@@ -163,7 +201,7 @@ class DNO:
             loss += self.conf.diff_penalty_scale * loss_diff.sum()
             self.info["loss_diff"] = loss_diff.detach().cpu()
         else:
-            self.info["loss_diff"] = [0] * batch_size
+            self.info["loss_diff"] = torch.tensor([0] * batch_size, device="cpu")
 
         # decorrelate
         if self.conf.decorrelate_scale > 0:
@@ -175,7 +213,7 @@ class DNO:
             loss += self.conf.decorrelate_scale * loss_decorrelate.sum()
             self.info["loss_decorrelate"] = loss_decorrelate.detach().cpu()
         else:
-            self.info["loss_decorrelate"] = [0] * batch_size
+            self.info["loss_decorrelate"] = torch.tensor([0] * batch_size, device="cpu")
 
         # backward
         loss.backward()
@@ -207,45 +245,6 @@ class DNO:
 
         self.step_count += 1
         self.hist.append(self.info)
-
-    def log_tensorboard(self, x, batch_size: int):
-        if self.tb_writer is None:
-            return
-
-        # Functino to convert possibly tensor value to scalar
-        def convert_value(x: Any):
-            if isinstance(x, list):
-                return sum(x) / len(x)
-            if isinstance(x, torch.Tensor):
-                return x.mean().detach().cpu().item()
-            return x
-
-        # Used for ordering variables in TB
-        group_index = 0
-        # Log all variables
-        # Scalar value, or value broadcast to batch (e.g. learning rate)
-        for var in self.TB_GLOBAL_VARS:
-            scalar_value = convert_value(self.info[var])
-            self.tb_writer.add_scalar(f"{group_index:02d}_dno/{var}", scalar_value, global_step=self.global_step)
-        group_index += 1
-
-        # Batched value (one per trial)
-        for var in self.TB_GROUP_VARS:
-            value = self.info[var]
-            for trial, trial_value in enumerate(value):
-                trial_value = convert_value(trial_value)
-                self.tb_writer.add_scalar(
-                    f"{group_index:02d}_{var}/trial_{trial}", trial_value, global_step=self.global_step
-                )
-            group_index += 1
-
-        # Log noise and output histograms
-        for var in self.TB_HIST_VARS:
-            for trial, trial_value in enumerate(self.info[var]):
-                self.tb_writer.add_histogram(
-                    f"{group_index:02d}_hist_{var}/trial_{trial}", trial_value, global_step=self.global_step
-                )
-            group_index += 1
 
     def compute_hist(self, batch_size):
         # output is a list (over batch) of dict (over keys) of lists (over steps)
