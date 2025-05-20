@@ -13,13 +13,19 @@ class TensorboardCallback(Callback):
     TB_GROUP_VARS = ["loss", "loss_diff", "loss_decorrelate", "diff_norm", "grad_norm"]
     TB_HIST_VARS = ["x", "z"]
 
-    def __init__(self, log_dir: str | None = None, flush_secs: int | None = None, every_n_steps: int = 1):
-        super().__init__(every_n_steps=every_n_steps)
+    def __init__(
+        self,
+        log_dir: str | None = None,
+        flush_secs: int | None = None,
+        every_n_steps: int | None = None,
+        start_after: int | None = None,
+    ):
+        super().__init__(every_n_steps, start_after)
 
         from torch.utils.tensorboard.writer import SummaryWriter
 
         # Log in CWD/logs by default
-        self.writer = SummaryWriter(log_dir=log_dir or "logs", flush_secs=flush_secs or 10)
+        self.writer = SummaryWriter(log_dir=log_dir or "logs", flush_secs=flush_secs or 2)
 
     @override
     @classmethod
@@ -27,7 +33,8 @@ class TensorboardCallback(Callback):
         return cls(
             log_dir=config.get("log_dir") or os.path.join(options.out_path, "logs"),
             flush_secs=config.get("flush_secs"),
-            every_n_steps=config.get("every_n_steps", 1),
+            every_n_steps=config.get("every_n_steps"),
+            start_after=config.get("start_after")
         )
 
     @override

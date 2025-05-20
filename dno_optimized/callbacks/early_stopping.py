@@ -15,9 +15,10 @@ class EarlyStoppingCallback(Callback):
         mode: Literal["min", "max"] = "min",
         metric: str = "loss",
         abs_value: float | None = None,
-        every_n_steps: int = 1,
+        every_n_steps: int | None = None,
+        start_after: int | None = None
     ):
-        super().__init__(every_n_steps=every_n_steps)
+        super().__init__(every_n_steps, start_after)
 
         self.patience = patience
         self.min_improvement = min_improvement
@@ -37,8 +38,9 @@ class EarlyStoppingCallback(Callback):
             min_improvement=config.get("min_improvement", 0.0),
             mode=config.get("mode", "min"),
             metric=config.get("metric", "loss"),
-            abs_value=config.get("abs_value", None),
-            every_n_steps=config.get("every_n_steps", 1),
+            abs_value=config.get("abs_value"),
+            every_n_steps=config.get("every_n_steps"),
+            start_after=config.get("start_after"),
         )
 
     @override

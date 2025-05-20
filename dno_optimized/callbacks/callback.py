@@ -28,10 +28,22 @@ class CallbackStepAction:
 class Callback(ABC):
     """Base class for all callbacks. Override one or more `on_[...]` methods to implement functionality."""
 
-    def __init__(self, every_n_steps: int = 1):
+    def __init__(self, every_n_steps: int | None = None, start_after: int | None = None):
+        """Initialize callback
+
+        :param every_n_steps: Set this value to run the callback only every n training steps. Starts counting at 1. Only
+            affects `on_train_[...]` callbacks.
+        :param start_after: Set this value to only start running the callback after the first n training steps. Can be
+            combined with every_n_steps. Only affects `on_train_[...]` callbacks.
+        """
         super().__init__()
         self.dno: "DNO"
-        self.every_n_steps = every_n_steps
+        self.every_n_steps = every_n_steps or 1
+        self.start_after = start_after or 0
+
+    def _should_run_step_callback(self):
+        step = self.dno.step_count
+        return step >= self.start_after and (step % self.every_n_steps) == 0
 
     def invoke(
         self, callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], *args, **kwargs
@@ -42,10 +54,10 @@ class Callback(ABC):
             case "train_end":
                 return self.on_train_end(*args, **kwargs)
             case "step_begin":
-                if (self.dno.step_count) % self.every_n_steps == 0:
+                if self._should_run_step_callback():
                     return self.on_step_begin(*args, **kwargs)
             case "step_end":
-                if (self.dno.step_count) % self.every_n_steps == 0:
+                if self._should_run_step_callback():
                     return self.on_step_end(*args, **kwargs)
         return None
 
