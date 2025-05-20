@@ -7,5 +7,6 @@ dno:
   num_opt_steps: 10
   optimizer: LevenbergMarquardt # Adam, SGD, LBFGS, LevenbergMarquardt, ...
   lr: 0.5
+  enable_profiler: True
   levenbergMarquardt:
     attempts_per_step: 10

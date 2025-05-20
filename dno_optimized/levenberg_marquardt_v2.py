@@ -460,7 +460,7 @@ class LevenbergMarquardt(Optimizer):
         attempt = 0
         self.damping_strategy.initialize_step(loss)
 
-        while True:  # Infinite loop, break conditions inside
+        for attempt in range(self.attempts_per_step):
             params_updated = False
 
             # Try to update the parameters
@@ -496,38 +496,33 @@ class LevenbergMarquardt(Optimizer):
             except Exception as e:
                 logger.warning(f'An exception occurred: {e}')
 
-            if attempt < self.attempts_per_step:
-                attempt += 1
+            if params_updated:
+                # Compute the new loss value
+                new_outputs = self.forward(next(iter(self._params)))
+                new_loss = self.loss_fn(new_outputs)
+                # print("LM new_outputs", new_outputs.shape)
+                # print("LM step type(loss)", loss.shape)
+                # print("LM step type(new_loss)", new_loss.shape)
 
-                if params_updated:
-                    # Compute the new loss value
-                    new_outputs = self.forward(next(iter(self._params)))
-                    new_loss = self.loss_fn(new_outputs)
-                    # print("LM new_outputs", new_outputs.shape)
-                    # print("LM step type(loss)", loss.shape)
-                    # print("LM step type(new_loss)", new_loss.shape)
-
-                    if new_loss < loss:
-                        # Accept the new model parameters and backup them
-                        loss = new_loss
-                        self.damping_strategy.on_successful_update(loss)
-                        self.backup_parameters()
-                        break
-
-                    # Restore the old parameters and try a new damping factor
-                    self.restore_parameters()
-
-                # Adjust the damping factor for the next attempt
-                self.damping_strategy.on_unsuccessful_update(loss)
-
-                # Check if we should stop making more attempts and simply take the current update
-                stop_attempts = self.damping_strategy.stop_attempts(loss)
-
-                # Check if training should stop
-                stop_training = self.damping_strategy.stop_training(loss)
-                if stop_training or stop_attempts:
+                if new_loss < loss:
+                    # Accept the new model parameters and backup them
+                    loss = new_loss
+                    self.damping_strategy.on_successful_update(loss)
+                    self.backup_parameters()
                     break
-            else:
+
+                # Restore the old parameters and try a new damping factor
+                self.restore_parameters()
+
+            # Adjust the damping factor for the next attempt
+            self.damping_strategy.on_unsuccessful_update(loss)
+
+            # Check if we should stop making more attempts and simply take the current update
+            stop_attempts = self.damping_strategy.stop_attempts(loss)
+
+            # Check if training should stop
+            stop_training = self.damping_strategy.stop_training(loss)
+            if stop_training or stop_attempts:
                 break
 
         logs = {

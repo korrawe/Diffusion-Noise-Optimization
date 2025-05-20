@@ -106,6 +106,8 @@ class DNOOptions:
         default_factory=LevenbergMarquardtOptions, metadata={"help": "Options for Levenberg Marquardt optimizer"}
     )
 
+    enable_profiler: bool = field(default=False, metadata={"help": "Enable profiler"})
+
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
         if self.lr_decay_steps == -1:

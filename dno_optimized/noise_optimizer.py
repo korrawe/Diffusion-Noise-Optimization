@@ -131,7 +131,20 @@ class DNO:
 
         batch_size = self.start_z.shape[0]
 
+        profiler = None
+        if self.tb_writer and self.conf.enable_profiler:
+            profiler = torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.tb_writer.log_dir),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True,
+            )
+            profiler.start()
+
         for i in (pb := tqdm(range(num_steps))):
+            if profiler is not None:
+                profiler.step()
 
             def closure():
                 # Reset gradients
@@ -159,6 +172,9 @@ class DNO:
             pb.set_postfix({"loss": self.info["loss"].mean().item()})
 
         hist = self.compute_hist(batch_size=batch_size)
+
+        if profiler is not None:
+            profiler.stop()
 
         assert self.last_x is not None, "Missing result"
         return {
