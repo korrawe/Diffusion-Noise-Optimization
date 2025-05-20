@@ -560,7 +560,6 @@ def main(num_trials=3):
 
 
 def load_dataset(args, n_frames):
-    print(f"args: {args}")
     conf = DatasetConfig(
         name=args.dataset,
         batch_size=args.batch_size,

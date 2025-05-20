@@ -40,6 +40,10 @@ def main(config_file: str, dot_list=None):
     # Convert back to plain dataclass so we can access computed properties
     args: GenerateOptions = OmegaConf.to_object(merged_config)  # type: ignore
 
+    print("=========== OPTIONS ===========")
+    print(OmegaConf.to_yaml(args))
+    print("===============================")
+
     assert args.text_prompt != "", "Please specify text_prompt"
     assert args.gen_frames <= args.n_frames, "gen_frames must be less than n_frames"
 
