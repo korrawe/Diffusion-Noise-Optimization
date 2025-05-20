@@ -45,7 +45,7 @@ class EarlyStoppingCallback(Callback):
 
     @override
     def on_step_end(
-        self, step: int, global_step: int, info: DNOInfoDict, hist: list[DNOInfoDict]
+        self, step: int, info: DNOInfoDict, hist: list[DNOInfoDict]
     ) -> CallbackStepAction | None:
         value = info[self.metric].mean().item()  # Mean over batch
 

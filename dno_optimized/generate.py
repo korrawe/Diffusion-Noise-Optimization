@@ -11,6 +11,8 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
+from dno_optimized.callbacks.callback import CallbackList
+from dno_optimized.callbacks.save_top_k import SaveTopKCallback
 from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
 from sample import dno_helper
@@ -120,12 +122,16 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
-    callbacks = [create_callback(conf.name, args, conf.args) for conf in args.callbacks]
+    callbacks = CallbackList([create_callback(conf.name, args, conf.args) for conf in args.callbacks])
 
     ######## Main optimization loop #######
     noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, callbacks=callbacks)
     out = noise_opt()
     #######################################
+
+    # If there is a Top K callback, get its best model's state dict as output
+    if topk := callbacks.get(SaveTopKCallback):
+        out = topk.best_models[0].state_dict
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(
         args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target, out["stop_optimize"]

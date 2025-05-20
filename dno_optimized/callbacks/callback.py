@@ -1,6 +1,6 @@
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable, Literal, Self
+from typing import TYPE_CHECKING, Iterable, Literal, Self, Type, TypeVar
 
 from dno_optimized.options import GenerateOptions
 
@@ -83,21 +83,19 @@ class Callback(ABC):
         """
         pass
 
-    def on_step_begin(self, step: int, global_step: int) -> CallbackStepAction | None:
+    def on_step_begin(self, step: int) -> CallbackStepAction | None:
         """Runs once before every optimization step (batch)
 
         :param step: Step number/training round/batch index
-        :param global_step: Effective global optimization step, same as step * batch_size
         """
         pass
 
     def on_step_end(
-        self, step: int, global_step: int, info: "DNOInfoDict", hist: "list[DNOInfoDict]"
+        self, step: int, info: "DNOInfoDict", hist: "list[DNOInfoDict]"
     ) -> CallbackStepAction | None:
         """Runs once after every optimization step (batch)
 
         :param step: Step number/training round/batch index
-        :param global_step: Effective global optimization step, same as step * batch_size
         :param info: Current step's info dict
         :param hist: List (over steps) of dicts containing lists (over batch) with metrics
         """
@@ -115,6 +113,9 @@ class Callback(ABC):
         return f"{self.__class__.__name__}({', '.join(attrs)})"
 
 
+T = TypeVar("T")
+
+
 class CallbackList(list[Callback]):
     """Helper list class for invoking a list of callbacks."""
 
@@ -130,3 +131,20 @@ class CallbackList(list[Callback]):
             action = callback.invoke(callback_stage, *args, **kwargs)
             actions.append(action)
         return CallbackStepAction.aggregate(actions)
+
+    def has(self, callback_type: Type[T]) -> bool:
+        return any(isinstance(cb, callback_type) for cb in self)
+
+    def count(self, callback_type: Type[T]) -> int:
+        return len([cb for cb in self if isinstance(cb, callback_type)])
+
+    def get(self, callback_type: Type[T], index: int | None = None, default: T | None = None) -> T | None:
+        results: list[T] = []
+        for callback in self:
+            if isinstance(callback, callback_type):
+                results.append(callback)
+        if len(results) == 0:
+            return default
+        if index is not None:
+            return results[index]
+        return results[0]

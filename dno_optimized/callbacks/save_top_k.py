@@ -41,7 +41,7 @@ def argmax(it: Iterable[T], key: Callable[[T], S]) -> tuple[int, S]:
 
 @dataclass
 class ModelCheckpoint:
-    global_step: int
+    step: int
     metric_name: str
     metric_value: float
     state_dict: dict
@@ -49,7 +49,7 @@ class ModelCheckpoint:
 
     def get_save_path(self, save_dir: Path):
         suffix = "" if self.type == "best" else "_latest"
-        return save_dir / f"model_{self.global_step:04d}_{self.metric_name}={self.metric_value:.8f}{suffix}.ckpt"
+        return save_dir / f"model_{self.step:04d}_{self.metric_name}={self.metric_value:.8f}{suffix}.ckpt"
 
 
 class SaveTopKCallback(Callback):
@@ -100,8 +100,10 @@ class SaveTopKCallback(Callback):
         models = [x for x in self._best_models if x is not None]
         return sorted(models, key=lambda model: model.metric_value, reverse=self.mode == "max")
 
-    def create_checkpoint(self, global_step: int, metric_value: float, type: Literal["best", "latest"]):
-        return ModelCheckpoint(global_step, self.metric_key, metric_value, self.dno.state_dict(), type)
+    def create_checkpoint(self, step: int, metric_value: float, type: Literal["best", "latest"]):
+        state = self.dno.state_dict()
+        state["stop_optimize"] = step  # Needs to be updated
+        return ModelCheckpoint(step, self.metric_key, metric_value, state, type)
 
     def enqueue_save(self, model: ModelCheckpoint):
         try:
@@ -117,20 +119,20 @@ class SaveTopKCallback(Callback):
             pass
         self._delete_queue.append(model)
 
-    def update_latest_model(self, global_step: int, metric_value: float):
+    def update_latest_model(self, step: int, metric_value: float):
         """Update the latest model, deleting the previous latest"""
         # Create new latest model, add to save queue, update reference
-        model_ckpt = self.create_checkpoint(global_step, metric_value, type="latest")
+        model_ckpt = self.create_checkpoint(step, metric_value, type="latest")
         self.enqueue_save(model_ckpt)
         # Delete old latest model
         if self._latest_model is not None:
             self.enqueue_delete(self._latest_model)
         self._latest_model = model_ckpt
 
-    def update_top_model(self, index: int, global_step: int, metric_value: float):
+    def update_top_model(self, index: int, step: int, metric_value: float):
         """Updates the top model at index, deleting old model"""
         # Create checkpoint (in-memory) and add to pending list
-        model_ckpt = self.create_checkpoint(global_step, metric_value, type="best")
+        model_ckpt = self.create_checkpoint(step, metric_value, type="best")
         self.enqueue_save(model_ckpt)
         # If index was passed, store in state list and delete replaced model
         if prev_model := self._best_models[index]:
@@ -153,17 +155,17 @@ class SaveTopKCallback(Callback):
 
     @override
     def on_step_end(
-        self, step: int, global_step: int, info: DNOInfoDict, hist: list[DNOInfoDict]
+        self, step: int, info: DNOInfoDict, hist: list[DNOInfoDict]
     ) -> CallbackStepAction | None:
         value = info[self.metric_key].mean().item()  # Mean over batch (hard-coded)
 
         if self.save_latest:
-            self.update_latest_model(global_step, value)
+            self.update_latest_model(step, value)
 
         # First check if there are "empty" spots to fill
         for i, model in enumerate(self._best_models):
             if model is None:
-                self.update_top_model(i, global_step, value)
+                self.update_top_model(i, step, value)
                 return
 
         # No more "empty" spots, find worst model and replace if this model is better
@@ -172,7 +174,7 @@ class SaveTopKCallback(Callback):
         worst_model_idx, worst_metric = cmp(best_models, key=lambda model: model.metric_value if model else self._inf)
         if self.mode == "min" and value < worst_metric or self.mode == "max" and value > worst_metric:
             # Replace as this is better. This overwrites the previous save file
-            self.update_top_model(worst_model_idx, global_step, value)
+            self.update_top_model(worst_model_idx, step, value)
 
         # Check if we need to flush
         if (step % self.flush_every) == 0:

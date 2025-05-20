@@ -1,11 +1,11 @@
 import math
-from typing import Iterable, TypedDict
+from typing import TypedDict
 
 import torch
 from torch.optim.optimizer import ParamsT
 from tqdm import tqdm
 
-from dno_optimized.callbacks.callback import Callback, CallbackList
+from dno_optimized.callbacks.callback import CallbackList
 from dno_optimized.options import DNOOptions, OptimizerType
 
 
@@ -74,7 +74,7 @@ class DNO:
         criterion,
         start_z,
         conf: DNOOptions,
-        callbacks: "Iterable[Callback] | None" = None,
+        callbacks: "CallbackList | None" = None,
     ):
         self.model = model
         self.criterion = criterion
@@ -116,17 +116,13 @@ class DNO:
         self.hist: list[DNOInfoDict] = []
         self.info: DNOInfoDict = {}  # type: ignore
 
-        self.callbacks = CallbackList(callbacks or [])
+        self.callbacks = callbacks or CallbackList()
         print("INFO: Using the following callbacks:")
         print(*[f"- {cb}" for cb in self.callbacks], sep="\n")
 
     @property
     def batch_size(self):
         return self.start_z.size(0)
-
-    @property
-    def global_step(self):
-        return self.step_count * self.batch_size
 
     def __call__(self, num_steps: int | None = None):
         return self.optimize(num_steps=num_steps)
@@ -150,7 +146,7 @@ class DNO:
                 return loss
 
             # Pre-step callbacks
-            res = self.callbacks.invoke(self, "step_begin", step=i, global_step=self.global_step)
+            res = self.callbacks.invoke(self, "step_begin", step=i)
             if res.stop:
                 break
 
@@ -163,7 +159,7 @@ class DNO:
 
             # Post-step callbacks
             res = self.callbacks.invoke(
-                self, "step_end", step=i, global_step=self.global_step, info=self.info, hist=self.hist
+                self, "step_end", step=i, info=self.info, hist=self.hist
             )
             if res.stop:
                 break
