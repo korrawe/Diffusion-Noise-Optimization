@@ -105,6 +105,8 @@ class DNO:
         self.last_x: torch.Tensor | None = None
         self.lr_frac: float | None = None
 
+        self.stop_optimize: int | None = None
+
         # history of the optimization (for each step and each instance in the batch)
         # hist = {
         #    "step": [step] * batch_size,
@@ -134,7 +136,7 @@ class DNO:
             num_steps = self.conf.num_opt_steps
 
         batch_size = self.start_z.shape[0]
-        stop_optimize = num_steps
+        self.stop_optimize = num_steps
 
         self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
 
@@ -170,7 +172,7 @@ class DNO:
 
         # Check for early stopping
         if i != num_steps - 1:
-            stop_optimize = i
+            self.stop_optimize = i
             print(f"INFO: Stopping optimization early at step {i}/{num_steps}")
 
         hist = self.compute_hist(batch_size=batch_size)
@@ -178,14 +180,18 @@ class DNO:
         self.callbacks.invoke(self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist)
 
         assert self.last_x is not None, "Missing result"
+        return self.state_dict()
+
+    def state_dict(self):
+        hist = self.compute_hist(self.batch_size)
         return {
-            # last step's z
+            # Last step's z
             "z": self.current_z.detach(),
-            # previous step's x
-            "x": self.last_x.detach(),
+            # Previous step's x
+            "x": self.last_x.detach() if self.last_x is not None else None,
             "hist": hist,
-            # amount_of_performed optimize steps
-            "stop_optimize": stop_optimize,
+            # Amount of performed optimize steps
+            "stop_optimize": self.stop_optimize,
         }
 
     def step_schedulers(self, batch_size: int):

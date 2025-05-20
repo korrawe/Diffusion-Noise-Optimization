@@ -16,7 +16,7 @@ class EarlyStoppingCallback(Callback):
         metric: str = "loss",
         abs_value: float | None = None,
         every_n_steps: int | None = None,
-        start_after: int | None = None
+        start_after: int | None = None,
     ):
         super().__init__(every_n_steps, start_after)
 
@@ -27,8 +27,8 @@ class EarlyStoppingCallback(Callback):
         self.abs_value = abs_value
 
         # State
-        self.best_value: float = float("inf")
-        self.steps_since_improvement: int = 0
+        self._best_value: float = float("inf") if mode == "min" else float("-inf")
+        self._steps_since_improvement: int = 0
 
     @override
     @classmethod
@@ -54,19 +54,19 @@ class EarlyStoppingCallback(Callback):
                 # Surpassed min/max absolute value, stop
                 return CallbackStepAction(stop=True)
 
-        if self.mode == "min" and value < self.best_value - self.min_improvement:
+        if self.mode == "min" and value < self._best_value - self.min_improvement:
             # Mode=min and got lower value with margin min_improvement, reset state
-            self.best_value = value
-            self.steps_since_improvement = 0
-        elif self.mode == "max" and value > self.best_value + self.min_improvement:
+            self._best_value = value
+            self._steps_since_improvement = 0
+        elif self.mode == "max" and value > self._best_value + self.min_improvement:
             # Mode=max and got higher value with margin min_improvement, reset state
-            self.best_value = value
-            self.steps_since_improvement = 0
+            self._best_value = value
+            self._steps_since_improvement = 0
         else:
             # No improvement, increase counter
-            self.steps_since_improvement += 1
+            self._steps_since_improvement += 1
 
-        if self.steps_since_improvement > self.patience:
+        if self._steps_since_improvement > self.patience:
             return CallbackStepAction(stop=True)
 
         return None

@@ -14,3 +14,4 @@ callbacks:
       patience: 50
       min_improvement: 1e-4
       abs_value: 1e-5
+  - name: save_top_k
