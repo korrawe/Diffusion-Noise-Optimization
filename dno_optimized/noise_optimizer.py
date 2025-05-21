@@ -1,15 +1,19 @@
 import math
-from typing import TypedDict
+from typing import Callable, TypedDict
 
 import torch
-from torch.optim.optimizer import ParamsT
+from torch import Tensor
 from tqdm import tqdm
+from torch.optim.optimizer import ParamsT
 
+from dno_optimized.levenberg_marquardt import LevenbergMarquardt
 from dno_optimized.callbacks.callback import CallbackList
 from dno_optimized.options import DNOOptions, OptimizerType
 
 
-def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptions) -> torch.optim.Optimizer:
+def create_optimizer(
+    optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model: Callable[[Tensor], Tensor], criterion: Callable[[Tensor], Tensor]
+) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
         case OptimizerType.Adam:
@@ -27,7 +31,13 @@ def create_optimizer(optimizer: OptimizerType, params: ParamsT, config: DNOOptio
         case OptimizerType.GaussNewton:
             raise NotImplementedError(optimizer)
         case OptimizerType.LevenbergMarquardt:
-            raise NotImplementedError(optimizer)
+            return LevenbergMarquardt(
+                params,
+                model=model,
+                loss_fn=criterion,
+                learning_rate=config.lr,
+                attempts_per_step=config.levenbergMarquardt.attempts_per_step,
+            )
         case _:
             raise ValueError(f"`{optimizer}` is not a valid optimizer")
 
@@ -71,8 +81,8 @@ class DNO:
     def __init__(
         self,
         model,
-        criterion,
-        start_z,
+        criterion: Callable[[Tensor], Tensor],
+        start_z: Tensor,
         conf: DNOOptions,
         callbacks: "CallbackList | None" = None,
     ):
@@ -86,7 +96,7 @@ class DNO:
         # excluding the first dimension (batch size)
         self.dims = list(range(1, len(self.start_z.shape)))
 
-        self.optimizer = create_optimizer(self.conf.optimizer, [self.current_z], self.conf)
+        self.optimizer = create_optimizer(self.conf.optimizer, [self.current_z], self.conf, model, criterion)
         print(f"INFO: Using {self.conf.optimizer.name} optimizer with LR of {self.conf.lr:.2g}")
 
         self.lr_scheduler = []
@@ -136,7 +146,20 @@ class DNO:
 
         self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
 
+        profiler = None
+        if self.tb_writer and self.conf.enable_profiler:
+            profiler = torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.tb_writer.log_dir),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True,
+            )
+            profiler.start()
+
         for i in (pb := tqdm(range(num_steps))):
+            if profiler is not None:
+                profiler.step()
 
             def closure():
                 # Reset gradients
@@ -170,6 +193,9 @@ class DNO:
             print(f"INFO: Stopping optimization early at step {i}/{num_steps}")
 
         hist = self.compute_hist(batch_size=batch_size)
+
+        if profiler is not None:
+            profiler.stop()
 
         self.callbacks.invoke(self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist)
 

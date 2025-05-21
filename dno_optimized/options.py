@@ -64,6 +64,17 @@ class LBFGSOptions:
 
 
 @dataclass
+class LevenbergMarquardtOptions:
+    attempts_per_step: int = field(
+        default=10,
+        metadata={
+            "help": "Number of attempts per step (1 for editing, 2 for refinement, can go further for better results)"
+        },
+    )
+    damping_fac: float = field(default=1e-3, metadata={"help": "Damping factor $\lambda$ in Levenberg Marquardt"})
+
+
+@dataclass
 class DNOOptions:
     num_opt_steps: int = field(
         default=500,
@@ -91,6 +102,11 @@ class DNOOptions:
     # Custom optimizer options
     optimizer: OptimizerType = field(default=OptimizerType.Adam, metadata={"help": "Optimizer to use for DNO."})
     lbfgs: LBFGSOptions = field(default_factory=LBFGSOptions, metadata={"help": "Options for LBFGS optimizer"})
+    levenbergMarquardt: LevenbergMarquardtOptions = field(
+        default_factory=LevenbergMarquardtOptions, metadata={"help": "Options for Levenberg Marquardt optimizer"}
+    )
+
+    enable_profiler: bool = field(default=False, metadata={"help": "Enable profiler"})
 
     stopping_value: float = field(default=1e-8, metadata={"help": "When the loss reaches this value, stop the optimization"})
 
@@ -133,6 +149,7 @@ class GenerateOptions:
     ## DATA
     dataset: Dataset = Dataset.humanml
     data_dir: str = ""
+    dataloader_num_workers: int = 8
 
     ## MODEL
     arch: Arch = Arch.trans_enc

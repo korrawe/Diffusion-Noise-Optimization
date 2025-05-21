@@ -35,6 +35,7 @@ dependencies:
     - torchvision==0.21.0
     - torchaudio==2.6.0
     - torchmetrics>0.11
+    - torch_tb_profiler
     - tqdm
     - trimesh
     # Git pip dependencies

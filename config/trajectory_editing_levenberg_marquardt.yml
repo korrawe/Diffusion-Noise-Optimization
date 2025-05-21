@@ -1,0 +1,12 @@
+task: trajectory_editing
+num_ode_steps: 10
+gradient_checkpoint: False
+num_trials: 1
+dataloader_num_workers: 2
+dno:
+  num_opt_steps: 10
+  optimizer: LevenbergMarquardt # Adam, SGD, LBFGS, LevenbergMarquardt, ...
+  lr: 0.5
+  enable_profiler: False
+  levenbergMarquardt:
+    attempts_per_step: 10

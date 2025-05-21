@@ -4,3 +4,6 @@ root = true
 indent_style = space
 indent_size = 4
 max_line_length = 120
+
+[*.yml]
+indent_size = 2
