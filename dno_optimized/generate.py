@@ -13,7 +13,6 @@ from data_loaders.get_data import DatasetConfig, get_dataset_loader
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 from data_loaders.tensors import collate
-from dno_optimized.callbacks.callback import CallbackList
 from dno_optimized.callbacks.save_top_k import SaveTopKCallback
 from dno_optimized.options import GenerateOptions
 from model.cfg_sampler import ClassifierFreeSampleModel
@@ -21,7 +20,7 @@ from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
 from sample.gen_dno import ddim_invert, ddim_loop_with_gradient
 from utils import dist_util
-from utils.callback_util import create_callback
+from utils.callback_util import callback_list_from_config, default_callbacks
 from utils.dist_util import setup_dist
 from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
@@ -128,7 +127,9 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
-    callbacks = CallbackList([create_callback(conf.name, args, conf.args) for conf in args.callbacks])
+    callbacks = callback_list_from_config(args.callbacks, args) if args.callbacks else default_callbacks(args)
+    if args.extra_callbacks:
+        callbacks.extend(callback_list_from_config(args.extra_callbacks, args), mode="replace")
 
     ######## Main optimization loop #######
     noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, callbacks=callbacks)
@@ -140,7 +141,18 @@ def main(config_file: str, dot_list=None):
         out = topk.best_models[0].state_dict
 
     captions, cur_lengths, cur_motions, cur_texts, num_dump_step = process_results(
-        args, data, gen_sample, inter_out, model, model_kwargs, out, sample, sample_2, step_out_list, target, out["stop_optimize"]
+        args,
+        data,
+        gen_sample,
+        inter_out,
+        model,
+        model_kwargs,
+        out,
+        sample,
+        sample_2,
+        step_out_list,
+        target,
+        out["stop_optimize"],
     )
 
     all_motions.extend(cur_motions)
@@ -403,14 +415,13 @@ def process_results(
     sample_2,
     step_out_list,
     target,
-    stop_optimize
+    stop_optimize,
 ):
-    
     # new: make here the list of the optimization steps which should be saved, since it is based on the fact if we did all optimization steps or not
     step_out_list = [0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.95]
     step_out_list = [int(aa * stop_optimize) for aa in step_out_list]
     step_out_list[-1] = stop_optimize - 1
-    
+
     for t in step_out_list:
         print("save optimize at", t)
 

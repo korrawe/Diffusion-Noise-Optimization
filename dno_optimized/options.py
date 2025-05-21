@@ -107,7 +107,9 @@ class DNOOptions:
 
     enable_profiler: bool = field(default=False, metadata={"help": "Enable profiler"})
 
-    stopping_value: float = field(default=1e-8, metadata={"help": "When the loss reaches this value, stop the optimization"})
+    stopping_value: float = field(
+        default=1e-8, metadata={"help": "When the loss reaches this value, stop the optimization"}
+    )
 
     def __post_init__(self):
         # if lr_decay_steps is not set, then set it to num_opt_steps
@@ -183,7 +185,15 @@ class GenerateOptions:
 
     dno: DNOOptions = field(default_factory=DNOOptions)
 
-    callbacks: list[CallbackConfig] = field(default_factory=list)
+    callbacks: list[CallbackConfig] | None = field(
+        default=None, metadata={"help": "Defines callbacks to use. If None, default callbacks are used."}
+    )
+    extra_callbacks: list[CallbackConfig] | None = field(
+        default=None,
+        metadata={
+            "help": "Defines additional callbacks to be merged with default callbacks (or `callbacks`) with the `replace` strategy."
+        },
+    )
 
     def __post_init__(self):
         # Peform post-initialization work here

@@ -5,13 +5,3 @@ dno:
   num_opt_steps: 800
   optimizer: Adam # Adam, SGD, LBFGS, LevenbergMarquardt, ...
   lr: 5e-2 # Default
-callbacks:
-  - name: tensorboard
-    args:
-      every_n_steps: 10
-  - name: early_stopping
-    args:
-      patience: 50
-      min_improvement: 1e-4
-      abs_value: 1e-5
-  - name: save_top_k

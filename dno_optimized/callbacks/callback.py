@@ -159,13 +159,30 @@ class CallbackList(list[Callback]):
     def count(self, callback_type: Type[T]) -> int:
         return len([cb for cb in self if isinstance(cb, callback_type)])
 
-    def get(self, callback_type: Type[T], index: int | None = None, default: T | None = None) -> T | None:
+    def get_all(self, callback_type: Type[T]) -> list[T]:
         results: list[T] = []
         for callback in self:
             if isinstance(callback, callback_type):
                 results.append(callback)
+        return results
+
+    def get(self, callback_type: Type[T], index: int | None = None, default: T | None = None) -> T | None:
+        results = self.get_all(callback_type)
         if len(results) == 0:
             return default
         if index is not None:
             return results[index]
         return results[0]
+
+    def extend(self, other: "CallbackList", mode: Literal["replace", "append"] = "replace") -> None:
+        if mode == "append":
+            super(CallbackList, self).extend(other)
+        elif mode == "replace":
+            final = []
+            for cb in self:
+                if not other.has(type(cb)):
+                    final.append(cb)
+            final.extend(other)
+            self[:] = final  # Replace own
+
+        raise ValueError(mode)
