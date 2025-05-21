@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch.optim.optimizer import ParamsT
 
 from dno_optimized.gauss_newton import GaussNewton
-from dno_optimized.levenberg_marquardt_v2 import LevenbergMarquardt
+from dno_optimized.levenberg_marquardt import LevenbergMarquardt
 from dno_optimized.options import DNOOptions, OptimizerType
 
 if TYPE_CHECKING:
