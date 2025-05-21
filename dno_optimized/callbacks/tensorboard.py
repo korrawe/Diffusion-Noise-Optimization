@@ -1,11 +1,14 @@
 import os
-from typing import Any, Self, override
+from typing import Any, Self, override, TYPE_CHECKING
 
 import torch
 
 from dno_optimized.options import GenerateOptions
 
-from .callback import Callback
+from .callback import Callback, CallbackStepAction
+
+if TYPE_CHECKING:
+    from ..noise_optimizer import DNOInfoDict
 
 
 class TensorboardCallback(Callback):
@@ -19,16 +22,28 @@ class TensorboardCallback(Callback):
         flush_secs: int | None = None,
         every_n_steps: int | None = None,
         start_after: int | None = None,
+        enable_profiler: bool | None = None,
     ):
         super().__init__(every_n_steps, start_after)
 
         self.log_dir = log_dir or "logs"
         self.flush_secs = flush_secs or 2
+        self.enable_profiler = enable_profiler or False
 
         from torch.utils.tensorboard.writer import SummaryWriter
 
         # Log in CWD/logs by default
         self._writer = SummaryWriter(log_dir=self.log_dir, flush_secs=self.flush_secs)
+
+        self._profiler = None
+        if enable_profiler:
+            self._profiler = torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=1, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.log_dir),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True,
+            )
 
     @override
     @classmethod
@@ -37,8 +52,24 @@ class TensorboardCallback(Callback):
             log_dir=config.get("log_dir") or os.path.join(options.out_path, "logs"),
             flush_secs=config.get("flush_secs"),
             every_n_steps=config.get("every_n_steps"),
-            start_after=config.get("start_after")
+            start_after=config.get("start_after"),
+            enable_profiler=config.get("enable_profiler")
         )
+
+    @override
+    def on_train_begin(self, num_steps: int, batch_size: int):
+        if self._profiler:
+            self._profiler.start()
+
+    @override
+    def on_train_end(self, num_steps: int, batch_size: int, hist: "list[DNOInfoDict]"):
+        if self._profiler:
+            self._profiler.stop()
+
+    @override
+    def on_step_begin(self, step: int) -> CallbackStepAction | None:
+        if self._profiler:
+            self._profiler.step()
 
     @override
     def on_step_end(self, step, info, hist):

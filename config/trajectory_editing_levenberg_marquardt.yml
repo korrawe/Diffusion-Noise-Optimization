@@ -7,6 +7,16 @@ dno:
   num_opt_steps: 10
   optimizer: LevenbergMarquardt # Adam, SGD, LBFGS, LevenbergMarquardt, ...
   lr: 0.5
-  enable_profiler: False
   levenbergMarquardt:
     attempts_per_step: 10
+callbacks:
+  - name: tensorboard
+    args:
+      every_n_steps: 10
+      enable_profiler: False
+  - name: early_stopping
+    args:
+      patience: 50
+      min_improvement: 1e-4
+      abs_value: 1e-5
+  - name: save_top_k

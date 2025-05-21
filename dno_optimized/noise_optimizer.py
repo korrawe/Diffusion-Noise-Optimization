@@ -81,7 +81,7 @@ class DNO:
     def __init__(
         self,
         model,
-        criterion: Callable[[Tensor], Tensor],
+        criterion: Callable[[Tensor], float],
         start_z: Tensor,
         conf: DNOOptions,
         callbacks: "CallbackList | None" = None,
@@ -146,21 +146,8 @@ class DNO:
 
         self.callbacks.invoke(self, "train_begin", num_steps=num_steps, batch_size=batch_size)
 
-        profiler = None
-        if self.tb_writer and self.conf.enable_profiler:
-            profiler = torch.profiler.profile(
-                schedule=torch.profiler.schedule(wait=1, warmup=1, active=1, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.tb_writer.log_dir),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True,
-            )
-            profiler.start()
-
+        i = 0
         for i in (pb := tqdm(range(num_steps))):
-            if profiler is not None:
-                profiler.step()
-
             def closure():
                 # Reset gradients
                 self.optimizer.zero_grad()
@@ -193,9 +180,6 @@ class DNO:
             print(f"INFO: Stopping optimization early at step {i}/{num_steps}")
 
         hist = self.compute_hist(batch_size=batch_size)
-
-        if profiler is not None:
-            profiler.stop()
 
         self.callbacks.invoke(self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist)
 

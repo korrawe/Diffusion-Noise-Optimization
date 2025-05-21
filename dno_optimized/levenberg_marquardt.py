@@ -345,6 +345,9 @@ class LevenbergMarquardt(Optimizer):
                 - stop_training: Whether training should stop.
                 - logs: Additional metadata (e.g., damping factor, attempts).
         """
+        with torch.enable_grad():
+            closure()
+
         if self._batch_size is None:
             # Initialize during the first train step
             outputs = self.forward(next(iter(self._params)))

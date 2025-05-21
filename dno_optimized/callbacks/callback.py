@@ -9,7 +9,7 @@ from tqdm import tqdm
 from dno_optimized.options import GenerateOptions
 
 if TYPE_CHECKING:
-    from noise_optimizer import DNO, DNOInfoDict
+    from ..noise_optimizer import DNO, DNOInfoDict
 
 
 def _terminal_width(fallback: int = 80):
