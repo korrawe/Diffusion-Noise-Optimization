@@ -71,7 +71,6 @@ class LevenbergMarquardtOptions:
             "help": "Number of attempts per step (1 for editing, 2 for refinement, can go further for better results)"
         },
     )
-    damping_fac: float = field(default=1e-3, metadata={"help": "Damping factor $\lambda$ in Levenberg Marquardt"})
 
 
 @dataclass
