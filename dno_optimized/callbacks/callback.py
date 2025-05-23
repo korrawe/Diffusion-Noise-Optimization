@@ -9,7 +9,7 @@ from tqdm import tqdm
 from dno_optimized.options import GenerateOptions
 
 if TYPE_CHECKING:
-    from ..noise_optimizer import DNO, DNOInfoDict
+    from ..noise_optimizer import DNO, DNOInfoDict, DNOStateDict
 
 
 def _terminal_width(fallback: int = 80):
@@ -55,6 +55,13 @@ class Callback(ABC):
         self.every_n_steps = every_n_steps or 1
         self.start_after = start_after or 0
 
+    def __post_init__(self, callbacks: "CallbackList"):
+        """Called once all callbacks have been instantiated. Can be overridden to depend on other callbacks.
+
+        :param callbacks: List of callbacks in use.
+        """
+        pass
+
     def _should_run_step_callback(self):
         step = self.dno.step_count
         return step >= self.start_after and (step % self.every_n_steps) == 0
@@ -88,12 +95,13 @@ class Callback(ABC):
         """
         pass
 
-    def on_train_end(self, num_steps: int, batch_size: int, hist: "list[DNOInfoDict]"):
+    def on_train_end(self, num_steps: int, batch_size: int, hist: "list[DNOInfoDict]", state_dict: "DNOStateDict"):
         """Runs once when the training is done (completed all iterations or other callback resulted in a stop condition).
 
         :param num_steps: Number of optimization steps (effective)
         :param batch_size: Batch size (number of trials)
         :param hist List (over batch) of dicts containing lists (over steps) with metrics
+        :param state_dict State dict computed after the last optimization step
         """
         pass
 
@@ -184,5 +192,9 @@ class CallbackList(list[Callback]):
                     final.append(cb)
             final.extend(other)
             self[:] = final  # Replace own
+        else:
+            raise ValueError(mode)
 
-        raise ValueError(mode)
+    def post_init(self):
+        for cb in self:
+            cb.__post_init__(self)

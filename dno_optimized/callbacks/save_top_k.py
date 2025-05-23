@@ -6,7 +6,7 @@ from typing import Callable, Iterable, Literal, Self, TypeVar, override
 import torch
 
 from dno_optimized.callbacks.callback import CallbackStepAction
-from dno_optimized.noise_optimizer import DNOInfoDict
+from dno_optimized.noise_optimizer import DNOInfoDict, DNOStateDict
 from dno_optimized.options import GenerateOptions
 
 from .callback import Callback
@@ -181,5 +181,5 @@ class SaveTopKCallback(Callback):
             self.flush()
 
     @override
-    def on_train_end(self, num_steps: int, batch_size: int, hist: list[DNOInfoDict]):
+    def on_train_end(self, num_steps: int, batch_size: int, hist: list[DNOInfoDict], state_dict: DNOStateDict):
         self.flush()

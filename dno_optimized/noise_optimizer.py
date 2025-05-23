@@ -3,11 +3,11 @@ from typing import Callable, TypedDict
 
 import torch
 from torch import Tensor
-from tqdm import tqdm
 from torch.optim.optimizer import ParamsT
+from tqdm import tqdm
 
-from dno_optimized.levenberg_marquardt import LevenbergMarquardt
 from dno_optimized.callbacks.callback import CallbackList
+from dno_optimized.levenberg_marquardt import LevenbergMarquardt
 from dno_optimized.options import DNOOptions, OptimizerType
 
 
@@ -55,6 +55,13 @@ class DNOInfoDict(TypedDict):
     diff_norm: torch.Tensor
     z: torch.Tensor
     x: torch.Tensor
+
+
+class DNOStateDict(TypedDict):
+    z: torch.Tensor
+    x: torch.Tensor
+    hist: list[DNOInfoDict]
+    stop_optimize: int
 
 
 def default_info() -> DNOInfoDict:
@@ -186,13 +193,15 @@ class DNO:
         assert self.last_x is not None, "Missing result"
         return self.state_dict()
 
-    def state_dict(self):
+    def state_dict(self) -> DNOStateDict:
         hist = self.compute_hist(self.batch_size)
+        assert self.stop_optimize is not None, "Set DNO.stop_optimize before calling DNO.state_dict()"
+        assert self.last_x is not None, "Please run at least one optimization iteration before calling DNO.state_dict()"
         return {
             # Last step's z
             "z": self.current_z.detach(),
             # Previous step's x
-            "x": self.last_x.detach() if self.last_x is not None else None,
+            "x": self.last_x.detach(),
             "hist": hist,
             # Amount of performed optimize steps
             "stop_optimize": self.stop_optimize,

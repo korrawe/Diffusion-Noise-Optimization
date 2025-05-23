@@ -1,5 +1,5 @@
 import os
-from typing import Any, Self, override, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self, override
 
 import torch
 
@@ -44,6 +44,10 @@ class TensorboardCallback(Callback):
                 profile_memory=True,
                 with_stack=True,
             )
+
+    @property
+    def writer(self):
+        return self._writer
 
     @override
     @classmethod

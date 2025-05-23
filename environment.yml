@@ -21,6 +21,7 @@ dependencies:
       - numpy>=1.22,<2.0.0
       - omegaconf
       - pillow>=9.2.0
+      - psutil
       - pytorch-lightning>=1.9
       - PyYaml
       - regex

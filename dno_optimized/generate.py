@@ -127,9 +127,14 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
-    callbacks = callback_list_from_config(args.callbacks, args) if args.callbacks else default_callbacks(args)
+    callbacks = (
+        callback_list_from_config(args.callbacks, args, run_post_init=False)
+        if args.callbacks
+        else default_callbacks(args, run_post_init=False)
+    )
     if args.extra_callbacks:
         callbacks.extend(callback_list_from_config(args.extra_callbacks, args), mode="replace")
+    callbacks.post_init()
 
     ######## Main optimization loop #######
     noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, callbacks=callbacks)
@@ -179,6 +184,7 @@ def load_dataset(args, n_frames):
     data = get_dataset_loader(conf)
     data.fixed_length = n_frames
     return data
+
 
 def prepare_dataset_and_model(args):
     print("Loading dataset...")

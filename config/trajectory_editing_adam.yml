@@ -5,3 +5,5 @@ dno:
   num_opt_steps: 800
   optimizer: Adam # Adam, SGD, LBFGS, LevenbergMarquardt, ...
   lr: 5e-2 # Default
+extra_callbacks:
+  - name: profiler
