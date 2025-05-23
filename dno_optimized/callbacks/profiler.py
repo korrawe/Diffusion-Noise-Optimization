@@ -50,21 +50,21 @@ class ProfilerCallback(Callback):
             start_after=config.get("start_after"),
         )
 
-    def _log(self, global_step: int, value: float | int, tag: str):
+    def _log(self, global_step: int, key: str, value: float | int, tb_tag: str | None = None):
+        tb_tag = tb_tag or key
+        self._step_values[global_step][key] = value
         if self._tb_writer:
-            self._tb_writer.add_scalar(f"profiler/{tag}", value, global_step=global_step)
+            self._tb_writer.add_scalar(f"profiler/{tb_tag}", value, global_step=global_step)
         else:
-            self.progress.set_postfix({**self.progress.postfix, **{f"mem_{tag}": f"{value} MB"}})
+            self.progress.set_postfix({**self.progress.postfix, **{f"mem_{tb_tag}": f"{value} MB"}})
 
     def _log_gpu_mem(self, step: int):
         # Log GPU memory consumption
         if torch.cuda.is_available():
             gpu_mem = torch.cuda.memory_allocated() / 1024**2
             gpu_tot = torch.cuda.memory_reserved() / 1024**2
-            self._log(step, gpu_mem, tag="mem/gpu_allocated_MB")
-            self._log(step, gpu_tot, tag="mem/gpu_reserved_MB")
-            self._step_values[step]["mem_gpu_allocated"] = gpu_mem
-            self._step_values[step]["mem_gpu_reserved"] = gpu_tot
+            self._log(step, "mem_gpu_allocated", gpu_mem, tb_tag="mem/gpu_allocated")
+            self._log(step, "mem_gpu_reserved", gpu_tot, tb_tag="mem/gpu_reserved")
         else:
             warnings.warn(
                 f"{self.__class__.__name__}: CUDA not available, only reporting CPU memory usage.", stacklevel=2
@@ -77,8 +77,7 @@ class ProfilerCallback(Callback):
 
             process = psutil.Process(os.getpid())
             cpu_mem = process.memory_info().rss / 1024**2
-            self._log(step, cpu_mem, tag="mem/cpu")
-            self._step_values[step]["mem_cpu"] = cpu_mem
+            self._log(step, "mem_cpu", cpu_mem, tb_tag="mem/cpu")
         except ImportError:
             warnings.warn(
                 f"{self.__class__.__name__}: psutil package not found. Unable to determine CPU RAM usage.", stacklevel=2
@@ -92,19 +91,18 @@ class ProfilerCallback(Callback):
             return
 
         assert self._train_start_time is not None
-        elapsed = now - self._train_start_time
-        step_time = now - self._last_step_time
-        self._log(step, elapsed.total_seconds(), tag="time/elapsed_s")
-        self._log(step, step_time.total_seconds(), tag="time/step_s")
+        elapsed = (now - self._train_start_time).total_seconds()
+        step_time = (now - self._last_step_time).total_seconds()
+        self._log(step, "elapsed", elapsed, tb_tag="time/elapsed")
+        self._log(step, "step_time", step_time, tb_tag="time/step_time")
         self._last_step_time = now
-        self._step_values[step]["elapsed"] = step_time.total_seconds()
-        self._step_values[step]["step_time"] = (now - self._train_start_time).total_seconds()
+        self._step_values[step]["step_time"] = step_time
+        self._step_values[step]["elapsed"] = elapsed
 
     def _generate_report(self):
         # Generate time-series data
         df = pd.DataFrame.from_dict(self._step_values, orient="index")
         df.index.name = "step"
-        df.reset_index(inplace=True)
 
         # Generate summary data
         stats = pd.Series(
@@ -112,17 +110,22 @@ class ProfilerCallback(Callback):
                 "total_time": self._total_train_time,
                 "optimize_steps": self._stop_optimize,
                 "peak_mem_cpu": df["mem_cpu"].max(),
-                "peak_mem_gpu": df["mem_reserved"].max(),
+                "peak_mem_gpu_allocated": df["mem_gpu_allocated"].max(),
+                "peak_mem_gpu_reserved": df["mem_gpu_reserved"].max(),
             }
         )
+        # stats.index.name = "key"
+        # stats.name = "value"
 
+        self.report_dir.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.report_dir / "step_stats.csv")
-        stats.to_csv(self.report_dir / "summary.csv")
+        stats.to_csv(self.report_dir / "summary.csv", header=False)
 
     @override
     def on_step_end(self, step: int, info: DNOInfoDict, hist: list[DNOInfoDict]) -> CallbackStepAction | None:
         self._log_gpu_mem(step)
         self._log_cpu_mem(step)
+        self._log_step_time(step)
 
     @override
     def on_train_begin(self, num_steps: int, batch_size: int):

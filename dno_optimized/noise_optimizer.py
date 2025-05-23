@@ -12,7 +12,11 @@ from dno_optimized.options import DNOOptions, OptimizerType
 
 
 def create_optimizer(
-    optimizer: OptimizerType, params: ParamsT, config: DNOOptions, model: Callable[[Tensor], Tensor], criterion: Callable[[Tensor], Tensor]
+    optimizer: OptimizerType,
+    params: ParamsT,
+    config: DNOOptions,
+    model: Callable[[Tensor], Tensor],
+    criterion: Callable[[Tensor], Tensor],
 ) -> torch.optim.Optimizer:
     print("Config:", config)
     match optimizer:
@@ -155,6 +159,7 @@ class DNO:
 
         i = 0
         for i in (pb := tqdm(range(num_steps))):
+
             def closure():
                 # Reset gradients
                 self.optimizer.zero_grad()
@@ -188,10 +193,14 @@ class DNO:
 
         hist = self.compute_hist(batch_size=batch_size)
 
-        self.callbacks.invoke(self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist)
-
         assert self.last_x is not None, "Missing result"
-        return self.state_dict()
+        state_dict = self.state_dict()
+
+        self.callbacks.invoke(
+            self, "train_end", num_steps=num_steps, batch_size=batch_size, hist=hist, state_dict=state_dict
+        )
+
+        return state_dict
 
     def state_dict(self) -> DNOStateDict:
         hist = self.compute_hist(self.batch_size)

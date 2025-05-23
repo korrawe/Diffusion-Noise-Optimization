@@ -20,7 +20,7 @@ from sample import dno_helper
 from sample.condition import CondKeyLocationsLoss
 from sample.gen_dno import ddim_invert, ddim_loop_with_gradient
 from utils import dist_util
-from utils.callback_util import callback_list_from_config, default_callbacks
+from utils.callback_util import callbacks_from_options
 from utils.dist_util import setup_dist
 from utils.fixseed import fixseed
 from utils.model_util import create_gaussian_diffusion, create_model_and_diffusion, load_model_wo_clip
@@ -127,14 +127,7 @@ def main(config_file: str, dot_list=None):
             gradient_checkpoint=args.gradient_checkpoint,
         )
 
-    callbacks = (
-        callback_list_from_config(args.callbacks, args, run_post_init=False)
-        if args.callbacks
-        else default_callbacks(args, run_post_init=False)
-    )
-    if args.extra_callbacks:
-        callbacks.extend(callback_list_from_config(args.extra_callbacks, args), mode="replace")
-    callbacks.post_init()
+    callbacks = callbacks_from_options(args)
 
     ######## Main optimization loop #######
     noise_opt = DNO(model=solver, criterion=criterion, start_z=cur_xt, conf=noise_opt_conf, callbacks=callbacks)

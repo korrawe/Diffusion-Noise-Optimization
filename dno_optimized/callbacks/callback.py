@@ -1,3 +1,4 @@
+import inspect
 import os
 import textwrap
 from abc import ABC
@@ -67,19 +68,26 @@ class Callback(ABC):
         return step >= self.start_after and (step % self.every_n_steps) == 0
 
     def invoke(
-        self, callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], *args, **kwargs
+        self, callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], **kwargs
     ) -> CallbackStepAction | None:
+        # Invoke function only with kwargs that are actually accepted by the function. This way, callbacks can choose
+        # what kwargs to accept.
+        def invoke_with_kwargs(func, kwargs):
+            sig = inspect.signature(func)
+            accepted = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            return func(**accepted)
+
         match callback_stage:
             case "train_begin":
-                return self.on_train_begin(*args, **kwargs)
+                return invoke_with_kwargs(self.on_train_begin, kwargs)
             case "train_end":
-                return self.on_train_end(*args, **kwargs)
+                return invoke_with_kwargs(self.on_train_end, kwargs)
             case "step_begin":
                 if self._should_run_step_callback():
-                    return self.on_step_begin(*args, **kwargs)
+                    return invoke_with_kwargs(self.on_step_begin, kwargs)
             case "step_end":
                 if self._should_run_step_callback():
-                    return self.on_step_end(*args, **kwargs)
+                    return invoke_with_kwargs(self.on_step_end, kwargs)
         return None
 
     @classmethod
@@ -145,7 +153,7 @@ class CallbackList(list[Callback]):
         super().__init__(callbacks or [])
 
     def invoke(
-        self, dno: "DNO", callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], *args, **kwargs
+        self, dno: "DNO", callback_stage: Literal["train_begin", "train_end", "step_begin", "step_end"], **kwargs
     ):
         actions = []
         if "pb" in kwargs:
@@ -157,7 +165,7 @@ class CallbackList(list[Callback]):
             callback.dno = dno
             if pb:
                 callback.progress = pb
-            action = callback.invoke(callback_stage, *args, **kwargs)
+            action = callback.invoke(callback_stage, **kwargs)
             actions.append(action)
         return CallbackStepAction.aggregate(actions)
 
