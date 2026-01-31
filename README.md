@@ -125,7 +125,7 @@ cp -r ../HumanML3D/HumanML3D ./dataset/HumanML3D
 Download our version of MDM, then unzip and place it in `./save/`. 
 The model is trained on the HumanML3D dataset.
 
-[MDM model with EMA](https://polybox.ethz.ch/index.php/s/ZiXkIzdIsspK2Lt)
+[MDM model with EMA](https://drive.google.com/file/d/1leM-txXRHLCZLfiiulUKylYbAklTAYoI/view?usp=drive_link)
 
 
 ## Motion Synthesis
